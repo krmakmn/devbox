@@ -3,10 +3,10 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 1 tamamlandı.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 2 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
-> hazır. Sırada Faz 2 (Apache/Nginx sürücüleri) var.
+> hazır. Faz 2'de Apache ve Nginx sürücüleri yazıldı.
 >
 > Not: NRPT, Firefox NSS ve Windows onay penceresi yolları CI'nin
 > kapsayamadığı yerler — gerçek bir Windows makinesinde elle denenmedi.
@@ -33,6 +33,7 @@ Bunun arkasında duran parçalar:
 | `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
 | `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
 | `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
+| `internal/webserver` | Apache ve Nginx için vhost üretimi, söz dizimi ön denetimi, geri alma |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -75,6 +76,15 @@ meşru bir dağıtımda böyle bir girdi olmaz.
 > **uzaktan manifest reddediliyor**, yerel dosyayla çalışılıyor. Fail-closed
 > davranış bilinçli; doğrulanmamış bir liste istenmeyen bir ikilinin
 > kurulmasına yol açar.
+
+Web sunucusu tarafında: DevBox PHP'yi kendi de sunabiliyor, ama gerçek projeler
+`.htaccess`'e, nginx yeniden yazma kurallarına ve özel `location` bloklarına
+bağımlı — onları taklit etmek yerine gerçeğini çalıştırıyoruz. Üretilen
+yapılandırma önce diske atomik yazılıyor, sonra sunucunun **kendi söz dizimi
+denetiminden** geçiriliyor (`httpd -t`, `nginx -t`), ancak ondan sonra yeniden
+yükleniyor; denetim başarısız olursa eski dosya geri konuyor, çünkü bozuk bir
+yapılandırmayla yeniden yükleme çalışan siteleri de düşürür. Testler üretilen
+yapılandırmayı gerçekten kurulu nginx ve Apache'ye doğrulattırıyor.
 
 Kenar tarafında: Laragon'daki "Apache **veya** Nginx" seçimi mimari bir
 zorunluluk değil, sadece 80. portu tek sürecin dinleyebilmesinden kaynaklanıyor.

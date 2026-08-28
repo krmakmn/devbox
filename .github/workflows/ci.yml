@@ -27,6 +27,17 @@ jobs:
           go-version: stable
           cache: true
 
+      # Üretilen Apache ve Nginx yapılandırmaları, gerçek sunucuların kendi
+      # söz dizimi denetiminden geçiriliyor. Altın dosya testi metnin
+      # beklediğimiz gibi olduğunu söyler; sunucunun onu kabul edeceğini
+      # söylemez. Windows'ta bu paketler yok, testler kendiliğinden
+      # atlanıyor.
+      - name: Web sunucularını kur (söz dizimi doğrulaması için)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nginx-light apache2
+
       - name: Biçim denetimi
         shell: bash
         run: |
