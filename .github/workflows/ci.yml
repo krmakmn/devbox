@@ -41,6 +41,11 @@ jobs:
         run: go vet ./...
 
       - name: Testler (yarış dedektörüyle)
+        # Güven deposuna gerçekten yazan test yalnız burada açık: CI makinesi
+        # kullan-at, geliştirici makinesi değil. Test kendi kökünü kurup
+        # kaldırıyor.
+        env:
+          DEVBOX_TEST_TRUST_STORE: "1"
         run: go test ./... -race -count=1
 
   cross-build:

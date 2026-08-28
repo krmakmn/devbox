@@ -3,9 +3,8 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 0 — mimari doğrulama.** Yol haritasının en riskli parçası olan
-> PHP FastCGI süreç havuzu çalışıyor ve testleri var. Kenar proxy, alan adı,
-> TLS ve veritabanı katmanları henüz yok.
+> **Durum: Faz 0 — mimari doğrulama.** PHP FastCGI süreç havuzu ve yerel
+> sertifika otoritesi çalışıyor. Alan adı çözümlemesi ve kenar proxy henüz yok.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -23,11 +22,22 @@ Bunun arkasında duran parçalar:
 | `internal/fastcgi` | FastCGI 1.0 istemcisi — kayıt çerçeveleme, akışlı gövde, STDERR yakalama |
 | `internal/phppool` | php-cgi süreç havuzu — dağıtım, sağlık denetimi, yenileme, üstel geri çekilmeyle yeniden başlatma |
 | `internal/web` | HTTP → FastCGI köprüsü, CGI değişkenleri ve güvenlik denetimleri |
+| `internal/certs` | Yerel kök CA, joker SAN'lı site sertifikaları, sessiz yenileme |
+| `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
 | `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
 
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Sertifika tarafında iki ayrım noktası:
+
+- **Firefox de kapsanıyor.** Chrome ve Edge Windows'un güven deposunu okur,
+  Firefox okumaz — kendi NSS veritabanını taşır. Laragon'un atladığı ve
+  "sertifika kurdum ama Firefox'ta hâlâ uyarı veriyor" şikâyetlerinin tek
+  sebebi bu.
+- **Joker SAN.** `magaza.test` için kesilen sertifika `*.magaza.test`'i de
+  kapsar; `admin.magaza.test` sıfır yapılandırmayla çalışır.
 
 Halihazırda kapatılmış üç bilinen tuzak:
 

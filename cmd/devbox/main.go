@@ -21,7 +21,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/krmakmn/devbox/internal/certs"
+	"github.com/krmakmn/devbox/internal/paths"
 	"github.com/krmakmn/devbox/internal/phppool"
+	"github.com/krmakmn/devbox/internal/trust"
 	"github.com/krmakmn/devbox/internal/web"
 )
 
@@ -47,6 +50,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return runServe(args[1:])
+	case "trust":
+		return runTrust(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -64,6 +69,7 @@ func usage() {
 
 Kullanım:
   devbox serve [seçenekler]   bir dizini PHP ile sun
+  devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox version              sürümü yazdır
   devbox help                 bu yardımı göster
 
@@ -87,6 +93,8 @@ func runServe(args []string) error {
 		iniDir      = fs.String("ini", "", "projeye özel php.ini dizini (php-cgi -c)")
 		serverName  = fs.String("server-name", "", "SERVER_NAME değeri (boşsa istekteki Host)")
 		front       = fs.String("front-controller", "index.php", "ön denetleyici betiği")
+		useTLS      = fs.Bool("tls", false, "HTTPS sun (yerel CA'dan sertifika üretilir)")
+		domain      = fs.String("domain", "", "site alan adı; -tls ile sertifika bu ada kesilir")
 		verbose     = fs.Bool("verbose", false, "ayrıntılı günlük")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -155,8 +163,33 @@ func runServe(args []string) error {
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 
+	scheme := "http"
+	if *useTLS {
+		store, err := certs.Open(paths.CertsDir())
+		if err != nil {
+			return fmt.Errorf("sertifika deposu açılamadı: %w", err)
+		}
+		name := *domain
+		if name == "" {
+			name = "localhost"
+		}
+		// Sertifikayı şimdi kesiyoruz ki bir sorun varsa ilk istekte değil
+		// açılışta görülsün.
+		if _, err := store.Certificate(name); err != nil {
+			return err
+		}
+		srv.TLSConfig = store.TLSConfig()
+		handler.HTTPS = true
+		scheme = "https"
+
+		if installed, err := trust.IsInstalled(store.RootCertPath()); err == nil && !installed {
+			logger.Warn("kök sertifika güven deposunda değil; tarayıcı uyarı verecek",
+				"çözüm", "devbox trust install")
+		}
+	}
+
 	logger.Info("sunucu başladı",
-		"adres", "http://"+*addr,
+		"adres", scheme+"://"+*addr,
 		"kök", absRoot,
 		"php", exe,
 		"işçi", pool.Stats().Workers,
@@ -164,7 +197,14 @@ func runServe(args []string) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if *useTLS {
+			// Sertifika ve anahtar TLSConfig'ten geliyor.
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errc <- err
 		}
 	}()
@@ -185,6 +225,83 @@ func runServe(args []string) error {
 		logger.Warn("sunucu zarifçe kapanmadı", "hata", err)
 	}
 	return pool.Close()
+}
+
+func runTrust(args []string) error {
+	fs := flag.NewFlagSet("trust", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Kullanım: devbox trust <alt komut>
+
+  install     kök sertifikayı güven depolarına kur (Windows + Firefox)
+  status      kurulu mu diye bak
+  uninstall   işletim sistemi güven deposundan kaldır
+  path        kök sertifika dosyasının yolunu yazdır
+`)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	sub := "status"
+	if fs.NArg() > 0 {
+		sub = fs.Arg(0)
+	}
+
+	store, err := certs.Open(paths.CertsDir())
+	if err != nil {
+		return fmt.Errorf("sertifika deposu açılamadı: %w", err)
+	}
+	rootPath := store.RootCertPath()
+
+	switch sub {
+	case "path":
+		fmt.Println(rootPath)
+		return nil
+
+	case "status":
+		installed, err := trust.IsInstalled(rootPath)
+		fmt.Println("kök sertifika:", rootPath)
+		fmt.Println("geçerlilik   :", store.RootCertificate().NotAfter.Format("2006-01-02"))
+		switch {
+		case err != nil:
+			fmt.Println("güven deposu : sorgulanamadı —", err)
+		case installed:
+			fmt.Println("güven deposu : kurulu")
+		default:
+			fmt.Println("güven deposu : kurulu değil (devbox trust install)")
+		}
+		return nil
+
+	case "install":
+		results, err := trust.Install(rootPath)
+		if err != nil {
+			return err
+		}
+		var installed int
+		for _, r := range results {
+			fmt.Println(r)
+			if r.Installed {
+				installed++
+			}
+		}
+		if installed == 0 {
+			return errors.New("hiçbir güven deposuna kurulamadı")
+		}
+		fmt.Printf("\n%d hedefe kuruldu. Açık tarayıcıları yeniden başlatın.\n", installed)
+		return nil
+
+	case "uninstall":
+		if err := trust.Uninstall(rootPath); err != nil {
+			return err
+		}
+		fmt.Println("kök sertifika işletim sistemi güven deposundan kaldırıldı")
+		fmt.Println("not: Firefox profillerinden kaldırmak için certutil -D -d sql:<profil> -n \"DevBox yerel geliştirme CA\"")
+		return nil
+
+	default:
+		fs.Usage()
+		return fmt.Errorf("bilinmeyen alt komut %q", sub)
+	}
 }
 
 // findPHPCGI, php-cgi'yi bulur. Verilen yol doğrudan denenir; verilmediyse
