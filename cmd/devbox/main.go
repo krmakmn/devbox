@@ -62,6 +62,12 @@ func run(args []string) error {
 		return runEdge(args[1:])
 	case "runtime":
 		return runRuntime(args[1:])
+	case "daemon":
+		return runDaemon(args[1:])
+	case "ps":
+		return runPS(args[1:])
+	case "logs":
+		return runLogs(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -83,6 +89,9 @@ Kullanım:
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
   devbox edge [seçenekler]    80/443'ü dinle, host adına göre dağıt
   devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
+  devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
+  devbox ps                   servislerin durumunu göster
+  devbox logs [-f] <servis>   servisin günlüğünü göster
   devbox version              sürümü yazdır
   devbox help                 bu yardımı göster
 

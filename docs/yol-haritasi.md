@@ -17,6 +17,7 @@
 | Çözücü 53535 gibi yüksek bir portta çalışır, NRPT kuralı portu taşır | **NRPT kuralı yalnız sunucu IP'si alır, port taşıyamaz** | Çözücü 53'te dinlemek zorunda. Windows'ta 1024 altı portlar ayrıcalıklı olmadığı için yönetici hakkı gerekmiyor. Çakışmayı önlemek için 127.0.0.1 yerine **127.0.0.53** kullanılıyor |
 | Kenar proxy için Caddy kütüphane olarak gömülür | **Kenarın ihtiyacı olan her şey standart kütüphanede var** | `httputil.ReverseProxy` ile host tabanlı yönlendirme, TLS sonlandırma ve WebSocket yükseltmesi çalışıyor. Caddy'nin asıl değeri `acme_server`; bağımlılık **Faz 7'ye ertelendi** ve depo bağımlılıksız kaldı |
 | php-cgi havuzu en riskli parça | Doğrulandı, çalışıyor | Kendi FastCGI istemcimiz ve süreç havuzumuz yazıldı; en ince nokta işçi tahsisindeki yarış oldu (bkz. 4.4) |
+| API için WebSocket | **Günlük akışı tek yönlü** | SSE yetiyor ve standart kütüphaneyle yazılıyor; WebSocket bağımlılığı ertelendi. Çift yönlü kanal gerektiğinde (etkileşimli konsol) konu yeniden açılır |
 | Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
 | Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
 
@@ -127,6 +128,7 @@ betiklenebilen Windows geliştirme yığını."*
 | Kenar proxy | **Standart kütüphane** (`httputil.ReverseProxy`) | Prototip D'nin bulgusu: kenarın ihtiyacı olan her şey stdlib'de var — host tabanlı yönlendirme, TLS sonlandırma, WebSocket yükseltmesi. Caddy'nin asıl değeri `acme_server` modülü; o bağımlılık gerçekten gerekli olduğunda (Faz 7) eklenecek |
 | GUI | **Tauri 2 + Svelte/React** | ~10 MB kurulum, WebView2 zaten Windows'ta var; Electron'un 150 MB'ı ve RAM maliyeti yok |
 | CLI | Aynı Go ikilisi, `devbox` alt komutları | GUI ile **tek API** üzerinden konuşur; GUI'nin yapabildiği her şey betiklenebilir |
+| Günlük akışı | **SSE** (Sunucu Gönderimli Olaylar) | Tek yönlü olduğu için WebSocket'e gerek yok; stdlib yetiyor (bkz. bölüm 0) |
 | Yapılandırma üretimi | `text/template` + atomik dosya yazımı | Kısmi yazılmış conf ile sunucu çökmesin |
 | Şema | JSON Schema'lı `devbox.yaml` | Editör tamamlaması ve doğrulama |
 

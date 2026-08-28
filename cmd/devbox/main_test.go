@@ -66,3 +66,38 @@ func TestSplitPort(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitArgs(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"mysqld", []string{"mysqld"}},
+		{"mysqld --port 3307", []string{"mysqld", "--port", "3307"}},
+		{"  boşluklar   arada  ", []string{"boşluklar", "arada"}},
+		// Windows yollarındaki ters bölü kaçış sayılmamalı; aksi hâlde
+		// C:\php\php.exe yazılamaz.
+		{`C:\php\php-cgi.exe -b 127.0.0.1:9000`, []string{`C:\php\php-cgi.exe`, "-b", "127.0.0.1:9000"}},
+		// Tırnak, boşluk içeren yolları korur.
+		{`"C:\Program Files\MySQL\mysqld.exe" --defaults-file="C:\a b\my.ini"`,
+			[]string{`C:\Program Files\MySQL\mysqld.exe`, `--defaults-file=C:\a b\my.ini`}},
+		// Boş tırnak bir argümandır (boş dize geçirmek isteyen olabilir).
+		{`komut ""`, []string{"komut", ""}},
+	}
+
+	for _, c := range cases {
+		got, err := splitArgs(c.in)
+		if err != nil {
+			t.Errorf("splitArgs(%q): %v", c.in, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("splitArgs(%q) = %#v, beklenen %#v", c.in, got, c.want)
+		}
+	}
+
+	if _, err := splitArgs(`komut "kapanmamış`); err == nil {
+		t.Error("kapatılmamış tırnak kabul edildi")
+	}
+}

@@ -4,8 +4,9 @@ Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yen
 üretilebilirliği, Herd'ün cilası.
 
 > **Durum: Faz 1 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
-> `*.test` çözücüsü, kenar proxy) tamamlandı. Faz 1'de runtime kayıt defteri
-> ve süreç denetçisi hazır; REST API ve ayrıcalıklı yardımcı sırada.
+> `*.test` çözücüsü, kenar proxy) tamamlandı. Faz 1'de runtime kayıt defteri,
+> süreç denetçisi ve çekirdek servisin API'si hazır; ayrıcalıklı yardımcı
+> sırada.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -27,6 +28,7 @@ Bunun arkasında duran parçalar:
 | `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
 | `internal/runtime` | Runtime kayıt defteri: imzalı manifest, sürdürülebilir indirme, SHA256, sürümlü atomik kurulum |
 | `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
+| `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -36,6 +38,16 @@ Bunun arkasında duran parçalar:
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+API tarafında: GUI'nin yapabildiği her şey CLI'dan da yapılabilsin diye iş
+mantığı API'de değil, altta duran paketlerde; `devbox ps` ve `devbox logs`
+zaten o API'nin istemcisi. Sunucu yalnız loopback'i dinliyor ama bu tek başına
+yeterli değil — makinedeki herhangi bir tarayıcı sayfası da localhost'a istek
+atabilir. Üç katman var: jeton (0600 izinli dosyada, sabit sürede
+karşılaştırılıyor), **Host başlığı denetimi** (DNS yeniden bağlama saldırısını
+keser) ve CORS başlığı vermemek. Günlük akışı WebSocket yerine SSE ile: tek
+yönlü olduğu için yetiyor ve standart kütüphaneyle yazılabiliyor, bağımlılık
+getirmiyor.
 
 Runtime tarafında: Laragon'da bileşenler elle indirilip bir klasöre atılır —
 bütünlük doğrulaması, sürüm yönetimi, geri alma ve temizlik yoktur. Buradaki
