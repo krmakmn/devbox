@@ -1,0 +1,19 @@
+# Depodaki her şey LF ile durur ve LF ile çıkarılır.
+#
+# Windows'ta Git varsayılan olarak core.autocrlf=true ile çalışır; .go
+# dosyaları CRLF'e çevrilince gofmt hepsini "biçimlendirilmemiş" sayar ve
+# CI daha testlere gelmeden düşer. Satır sonunu depoda sabitlemek bunu
+# kaynağında çözer.
+* text=auto eol=lf
+
+# Windows toplu iş dosyaları CRLF olmadan güvenilir çalışmaz.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# İkili dosyalara dokunulmaz.
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.dll binary
