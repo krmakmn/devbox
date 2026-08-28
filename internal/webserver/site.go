@@ -42,7 +42,12 @@ type Site struct {
 	// betik. Boşsa "index.php".
 	FrontController string
 
-	// LogDir, erişim ve hata günlüklerinin yazılacağı dizin.
+	// LogDir, erişim ve hata günlüklerinin yazılacağı dizin. Zorunlu.
+	//
+	// Boş bırakılırsa sunucu kendi derleme varsayılanına düşer: tüm siteler
+	// tek bir dosyaya yazar ve DevBox günlüklerin nerede olduğunu bilemez,
+	// dolayısıyla gösteremez. Sessizce bozulan bir davranış olduğu için
+	// zorunlu tutuluyor.
 	LogDir string
 }
 
@@ -72,6 +77,9 @@ func (s *Site) Validate() error {
 		return fmt.Errorf("webserver: %s için belge kökü boş", s.Name)
 	case s.Listen == "":
 		return fmt.Errorf("webserver: %s için dinleme adresi boş", s.Name)
+	case s.LogDir == "":
+		return fmt.Errorf("webserver: %s için günlük dizini boş; "+
+			"boş bırakılırsa sunucu kendi varsayılanına düşer ve günlükler bulunamaz", s.Name)
 	}
 
 	for _, name := range append([]string{s.Domain}, s.Aliases...) {

@@ -46,6 +46,7 @@ func TestGeneratedNginxConfigIsAcceptedByNginx(t *testing.T) {
 		{
 			Name: "belgeler", Domain: "belgeler.test",
 			DocumentRoot: root, Listen: "127.0.0.1:8080",
+			LogDir: logs,
 		},
 	}
 
@@ -64,8 +65,21 @@ func TestGeneratedNginxConfigIsAcceptedByNginx(t *testing.T) {
 		t.Skip("fastcgi_params bulunamadı; nginx kurulumu eksik")
 	}
 
+	// pid ve günlük yollarını prefix'e alıyoruz. "nginx -t" yalnız söz
+	// dizimini denetlemiyor; pid dosyasını da açmayı deniyor ve
+	// varsayılan /run/nginx.pid root olmayan bir kullanıcı için yazılabilir
+	// değil. Bu ayarlar olmadan test, üretilen yapılandırma kusursuz olsa
+	// bile ortam yüzünden düşer.
 	wrapper := filepath.Join(prefix, "nginx.conf")
-	content := "events {}\nhttp {\n    include " + generated + ";\n}\n"
+	content := "pid " + filepath.Join(prefix, "nginx.pid") + ";\n" +
+		"error_log " + filepath.Join(logs, "nginx-error.log") + ";\n" +
+		"events {}\n" +
+		"http {\n" +
+		"    client_body_temp_path " + filepath.Join(prefix, "body") + ";\n" +
+		"    proxy_temp_path " + filepath.Join(prefix, "proxy") + ";\n" +
+		"    fastcgi_temp_path " + filepath.Join(prefix, "fastcgi") + ";\n" +
+		"    include " + generated + ";\n" +
+		"}\n"
 	if err := os.WriteFile(wrapper, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

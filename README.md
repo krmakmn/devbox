@@ -34,6 +34,7 @@ Bunun arkasında duran parçalar:
 | `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
 | `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
 | `internal/webserver` | Apache ve Nginx için vhost üretimi, söz dizimi ön denetimi, geri alma |
+| `internal/ports` | Port tahsisi: Hyper-V rezervasyonları, IIS farkındalığı, açıklayıcı hata |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -85,6 +86,13 @@ denetiminden** geçiriliyor (`httpd -t`, `nginx -t`), ancak ondan sonra yeniden
 yükleniyor; denetim başarısız olursa eski dosya geri konuyor, çünkü bozuk bir
 yapılandırmayla yeniden yükleme çalışan siteleri de düşürür. Testler üretilen
 yapılandırmayı gerçekten kurulu nginx ve Apache'ye doğrulattırıyor.
+
+Port tarafında: Windows'ta bir port "boş görünüp" bağlanamayabiliyor. En sinsi
+sebep **Hyper-V rezervasyonları** — WSL2 ya da Docker Desktop açıkken Windows
+geniş aralıkları sessizce rezerve eder; `netstat` boş gösterir ama `bind`
+"erişim engellendi" der. Tahsis edici bu listeyi okuyup aralığı önceden eliyor,
+sonra portu gerçekten bağlamayı deneyerek doğruluyor, bulamazsa da sebebi ve
+ne yapılacağını yazıyor (80/443 için IIS/W3SVC'yi anıyor).
 
 Kenar tarafında: Laragon'daki "Apache **veya** Nginx" seçimi mimari bir
 zorunluluk değil, sadece 80. portu tek sürecin dinleyebilmesinden kaynaklanıyor.

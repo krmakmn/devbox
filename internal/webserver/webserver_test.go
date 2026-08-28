@@ -57,6 +57,7 @@ func testSites() []Site {
 			DocumentRoot: `C:\projeler\belgeler`,
 			Listen:       "127.0.0.1:8080",
 			Index:        []string{"index.html"},
+			LogDir:       `C:\devbox\log`,
 		},
 	}
 }
@@ -174,7 +175,7 @@ func TestHTTPSFlagIsNotLeakedOnPlainHTTP(t *testing.T) {
 func TestStaticSiteFallsBackTo404(t *testing.T) {
 	sites := []Site{{
 		Name: "belgeler", Domain: "belgeler.test",
-		DocumentRoot: "/x", Listen: "127.0.0.1:8080",
+		DocumentRoot: "/x", Listen: "127.0.0.1:8080", LogDir: "/log",
 	}}
 	got, err := (&Nginx{}).Render(sites)
 	if err != nil {
@@ -206,7 +207,7 @@ func TestBlocksDotFiles(t *testing.T) {
 // Değerler doğrudan yapılandırma dosyasına yazıldığı için, satır sonu ya da
 // tırnak içeren bir alan adı üretilen dosyaya yönerge eklemek demek.
 func TestRejectsUnsafeValues(t *testing.T) {
-	base := Site{Name: "a", Domain: "a.test", DocumentRoot: "/x", Listen: "127.0.0.1:80"}
+	base := Site{Name: "a", Domain: "a.test", DocumentRoot: "/x", Listen: "127.0.0.1:80", LogDir: "/log"}
 
 	bad := []Site{
 		func() Site { s := base; s.Domain = "a.test\n    Require all granted"; return s }(),
@@ -231,10 +232,24 @@ func TestRejectsUnsafeValues(t *testing.T) {
 	}
 }
 
+// Günlük dizini olmayan bir site, sunucunun derleme varsayılanına düşer:
+// tüm siteler tek dosyaya yazar ve DevBox günlükleri bulamaz. Bu, root
+// olmayan bir kullanıcıyla koşulan CI'da izin hatası olarak ortaya çıkmıştı.
+func TestRejectsSiteWithoutLogDir(t *testing.T) {
+	s := Site{Name: "a", Domain: "a.test", DocumentRoot: "/x", Listen: "127.0.0.1:80"}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("günlük dizini olmayan site kabul edildi")
+	}
+	if !strings.Contains(err.Error(), "günlük") {
+		t.Errorf("hata sebebi anlatmıyor: %v", err)
+	}
+}
+
 func TestRejectsDuplicateSiteNames(t *testing.T) {
 	sites := []Site{
-		{Name: "a", Domain: "a.test", DocumentRoot: "/x", Listen: "127.0.0.1:80"},
-		{Name: "a", Domain: "b.test", DocumentRoot: "/y", Listen: "127.0.0.1:80"},
+		{Name: "a", Domain: "a.test", DocumentRoot: "/x", Listen: "127.0.0.1:80", LogDir: "/log"},
+		{Name: "a", Domain: "b.test", DocumentRoot: "/y", Listen: "127.0.0.1:80", LogDir: "/log"},
 	}
 	if _, err := (&Nginx{}).Render(sites); err == nil {
 		t.Error("aynı adlı iki site kabul edildi")
