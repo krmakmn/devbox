@@ -370,14 +370,19 @@ Tahminler 2 kişilik bir ekip içindir. **MVP Faz 3 sonunda** (≈ 4. ay).
 - **Kabul:** dört prototip de Windows 10 ve 11'de çalışıyor; NRPT'nin kurumsal
   politika altında yazılabilirliği doğrulandı.
 
-### Faz 1 — Çekirdek · 6 hafta
-- `devboxd`: süreç denetçisi (İş Nesnesi, sağlık denetimi, geri çekilmeli yeniden
-  başlatma, log toplama), REST + WebSocket API, durum makinesi.
-- `devbox-helper`: LocalSystem servisi, adlandırılmış boru, 6 ayrıcalıklı işlem,
-  girdi izin listesi.
+### Faz 1 — Çekirdek · 6 hafta — **tamamlandı**
+- `devboxd`: süreç denetçisi (İş Nesnesi, hazır olma ölçütleri, geri çekilmeli
+  yeniden başlatma, halka tamponlu günlük), REST API + SSE günlük akışı.
+- Ayrıcalıklı işlemler: kalıcı yardımcı servis yerine talep üzerine yükseltme
+  (`devbox privileged`), tipli işlemler ve girdi izin listesi (bkz. 4.2).
 - Runtime kayıt defteri: imzalı manifest, devam ettirilebilir indirme, SHA256
-  doğrulama, sürümlü atomik kurulum, çöp toplama, shim üretimi.
-- `devbox` CLI iskeleti.
+  doğrulama, sürümlü atomik kurulum, önbellek ve artık temizliği.
+- `devbox` CLI: daemon, ps, logs, runtime, trust, dns, edge, serve.
+
+**Kalan borç:** manifest yayın altyapısı (imzalama anahtarı ve gömülü açık
+anahtar) ve shim üretimi henüz yok; ikincisi sürüm değiştirmenin PATH'i
+kirletmeden yapılmasıyla ilgili ve Faz 2'de web sunucusu sürücüleriyle
+birlikte ele alınacak.
 - **Kabul:** `devbox runtime install php@8.3` bir dakikada biter, `devbox ps`
   süreçleri gösterir, daemon öldürülünce alt süreçler de ölür.
 
