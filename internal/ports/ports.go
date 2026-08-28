@@ -110,18 +110,20 @@ func (a *Allocator) Allocate(preferred int) (int, error) {
 	const maxScan = 200
 	var lastErr error
 	for port := preferred; port < preferred+maxScan && port <= 65535; port++ {
-		if a.reserved(port) {
-			continue
-		}
 		if a.IsExcluded(port) {
 			lastErr = fmt.Errorf("port %d işletim sistemi tarafından rezerve edilmiş", port)
 			continue
 		}
+		// Önce sahiplen, sonra dene: "boş mu?" ile "işaretle" ayrı adımlar
+		// olursa iki goroutine aynı portu alır.
+		if !a.claim(port) {
+			continue
+		}
 		if err := a.tryBind(port); err != nil {
+			a.Release(port)
 			lastErr = err
 			continue
 		}
-		a.mark(port)
 		return port, nil
 	}
 
@@ -168,16 +170,18 @@ func (a *Allocator) Taken() []int {
 	return out
 }
 
-func (a *Allocator) reserved(port int) bool {
+// claim, port alınmamışsa atomik olarak işaretler.
+//
+// Ayrı bir "alınmış mı?" sorgusu ile "işaretle" adımı arasında başka bir
+// goroutine aynı portu alabiliyor; ikisi tek kilit altında olmak zorunda.
+func (a *Allocator) claim(port int) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.taken[port]
-}
-
-func (a *Allocator) mark(port int) {
-	a.mu.Lock()
+	if a.taken[port] {
+		return false
+	}
 	a.taken[port] = true
-	a.mu.Unlock()
+	return true
 }
 
 // tryBind, portu gerçekten bağlamayı dener. Rezervasyon listesi ve netstat
@@ -190,16 +194,39 @@ func (a *Allocator) tryBind(port int) error {
 	return ln.Close()
 }
 
+// allocateEphemeral, işletim sisteminden boş bir port ister.
+//
+// Naif hâli yarışlı: dinleyiciyi kapatıp portu döndürünce, aynı anda çalışan
+// başka bir çağrı işletim sisteminden aynı portu alabiliyor. Çakışma
+// görürsek dinleyiciyi açık tutup yeniden deniyoruz — açık kaldığı sürece
+// işletim sistemi o portu bir daha vermez. Tutulan dinleyiciler dönüşte
+// kapanıyor.
 func (a *Allocator) allocateEphemeral() (int, error) {
-	ln, err := net.Listen("tcp", net.JoinHostPort(a.host, "0"))
-	if err != nil {
-		return 0, fmt.Errorf("ports: geçici port alınamadı: %w", err)
-	}
-	defer ln.Close()
+	var held []net.Listener
+	defer func() {
+		for _, ln := range held {
+			ln.Close()
+		}
+	}()
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	a.mark(port)
-	return port, nil
+	const maxAttempts = 50
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		ln, err := net.Listen("tcp", net.JoinHostPort(a.host, "0"))
+		if err != nil {
+			return 0, fmt.Errorf("ports: geçici port alınamadı: %w", err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+
+		if a.claim(port) {
+			// İşaretleme kapatmadan önce yapılıyor: kapattıktan sonra
+			// aynı portu alan bir çağrı, işaretimizi görüp yeniden
+			// deneyecek.
+			ln.Close()
+			return port, nil
+		}
+		held = append(held, ln)
+	}
+	return 0, fmt.Errorf("ports: %d denemede çakışmayan geçici port bulunamadı", maxAttempts)
 }
 
 // diagnosis, port bulunamadığında kullanıcıya ne olduğunu anlatır.
