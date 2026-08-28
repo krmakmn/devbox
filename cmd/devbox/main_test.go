@@ -101,3 +101,21 @@ func TestSplitArgs(t *testing.T) {
 		t.Error("kapatılmamış tırnak kabul edildi")
 	}
 }
+
+func TestSanitizeName(t *testing.T) {
+	cases := map[string]string{
+		"magaza":       "magaza",
+		"my-project_2": "my-project_2",
+		"proje adı":    "proje-adı",
+		"mağaza":       "mağaza",
+		"çiçek_2":      "çiçek_2",
+		`C:\yol\proje`: "C--yol-proje",
+		"":             "proje",
+		"../..":        "-----",
+	}
+	for in, want := range cases {
+		if got := sanitizeName(in); got != want {
+			t.Errorf("sanitizeName(%q) = %q, beklenen %q", in, got, want)
+		}
+	}
+}

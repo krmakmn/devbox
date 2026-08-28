@@ -20,6 +20,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/krmakmn/devbox/internal/certs"
 	"github.com/krmakmn/devbox/internal/dns"
@@ -27,6 +28,7 @@ import (
 	"github.com/krmakmn/devbox/internal/hostsfile"
 	"github.com/krmakmn/devbox/internal/nrpt"
 	"github.com/krmakmn/devbox/internal/paths"
+	"github.com/krmakmn/devbox/internal/phpini"
 	"github.com/krmakmn/devbox/internal/phppool"
 	"github.com/krmakmn/devbox/internal/trust"
 	"github.com/krmakmn/devbox/internal/web"
@@ -115,13 +117,18 @@ func runServe(args []string) error {
 		workers     = fs.Int("workers", 0, "php-cgi süreç sayısı (0 = CPU sayısı)")
 		maxRequests = fs.Int("max-requests", 500, "bir süreç kaç istekten sonra yenilenir (0 = sınırsız)")
 		phpVersion  = fs.String("php-version", "", "kullanılacak PHP sürümü (ör. 8.3); DevBox'ın kurduğu runtime'lardan seçilir")
-		iniDir      = fs.String("ini", "", "projeye özel php.ini dizini (php-cgi -c)")
+		iniDir      = fs.String("ini", "", "hazır bir php.ini dizini kullan (verilmezse DevBox üretir)")
+		xdebug      = fs.Bool("xdebug", false, "Xdebug'ı aç")
+		phpExts     routeList
+		phpSettings routeList
 		serverName  = fs.String("server-name", "", "SERVER_NAME değeri (boşsa istekteki Host)")
 		front       = fs.String("front-controller", "index.php", "ön denetleyici betiği")
 		useTLS      = fs.Bool("tls", false, "HTTPS sun (yerel CA'dan sertifika üretilir)")
 		domain      = fs.String("domain", "", "site alan adı; -tls ile sertifika bu ada kesilir")
 		verbose     = fs.Bool("verbose", false, "ayrıntılı günlük")
 	)
+	fs.Var(&phpExts, "php-ext", "yüklenecek PHP uzantısı (birden çok kez verilebilir)")
+	fs.Var(&phpSettings, "php-set", "php.ini ayarı, ad=değer (birden çok kez verilebilir)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -146,10 +153,20 @@ func runServe(args []string) error {
 		return err
 	}
 
-	var phpArgs []string
-	if *iniDir != "" {
-		phpArgs = append(phpArgs, "-c", *iniDir)
+	// php.ini: kullanıcı hazır bir dizin vermediyse projeye özel bir tane
+	// üretiyoruz. Proje başına ayrı ini, bir projede Xdebug açıkken
+	// diğerinin varsayılan ayarlarla çalışabilmesi demek.
+	confDir := *iniDir
+	if confDir == "" {
+		generated, err := generatePHPIni(exe, filepath.Base(absRoot), *xdebug, phpExts, phpSettings)
+		if err != nil {
+			return err
+		}
+		confDir = generated
+		logger.Info("php.ini üretildi", "dizin", confDir, "xdebug", *xdebug)
 	}
+
+	phpArgs := []string{"-c", confDir}
 
 	pool, err := phppool.New(phppool.Config{
 		Name:        filepath.Base(absRoot),
@@ -617,6 +634,83 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// generatePHPIni, projeye özel php.ini üretir ve dizinini döner.
+func generatePHPIni(phpExe, project string, xdebug bool, exts, settings []string) (string, error) {
+	cfg := phpini.Config{Settings: map[string]string{}}
+
+	// Runtime'ın kendi php.ini-development'ı varsa temel alınıyor: uzantı
+	// dizini ve derlemeye özgü ayarlar oradan geliyor.
+	phpDir := filepath.Dir(phpExe)
+	for _, name := range []string{"php.ini-development", "php.ini-production"} {
+		candidate := filepath.Join(phpDir, name)
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+			cfg.BaseFile = candidate
+			break
+		}
+	}
+	if extDir := filepath.Join(phpDir, "ext"); dirExists(extDir) {
+		cfg.ExtensionDir = extDir
+	}
+
+	for _, ext := range exts {
+		cfg.Extensions = append(cfg.Extensions, strings.TrimSpace(ext))
+	}
+	for _, spec := range settings {
+		key, value, found := strings.Cut(spec, "=")
+		if !found {
+			return "", fmt.Errorf("php ayarı ad=değer biçiminde olmalı: %q", spec)
+		}
+		cfg.Settings[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+
+	if xdebug {
+		x := &phpini.Xdebug{}
+		// Uzantı dosyası bulunabiliyorsa yolunu veriyoruz; yoksa yalnız
+		// ayarlar yazılıyor (uzantı temel dosyada yüklüyse yeter).
+		for _, name := range []string{"php_xdebug.dll", "xdebug.so"} {
+			candidate := filepath.Join(phpDir, "ext", name)
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+				x.Extension = candidate
+				break
+			}
+		}
+		cfg.Xdebug = x
+	}
+
+	dir := filepath.Join(paths.DataDir(), "php", sanitizeName(project))
+	if _, err := phpini.Write(dir, cfg); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// sanitizeName, proje adını dizin adı olarak güvenli hâle getirir.
+//
+// Unicode harflere izin veriyoruz: yalnız ASCII kabul etmek "mağaza"yı
+// "ma-aza"ya çeviriyordu ve hedef kitle Türkçe proje adı kullanıyor.
+// Elenen şey yol ayraçları, sürücü harfi iki noktası ve dosya sisteminin
+// kabul etmediği karakterler.
+func sanitizeName(name string) string {
+	var sb strings.Builder
+	for _, r := range name {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
+			sb.WriteRune(r)
+		default:
+			sb.WriteRune('-')
+		}
+	}
+	if sb.Len() == 0 {
+		return "proje"
+	}
+	return sb.String()
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // findPHPCGI, php-cgi'yi bulur.

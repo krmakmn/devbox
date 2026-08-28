@@ -35,6 +35,7 @@ Bunun arkasında duran parçalar:
 | `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
 | `internal/webserver` | Apache ve Nginx için vhost üretimi, söz dizimi ön denetimi, geri alma |
 | `internal/ports` | Port tahsisi: Hyper-V rezervasyonları, IIS farkındalığı, açıklayıcı hata |
+| `internal/phpini` | Proje başına php.ini katmanlama ve Xdebug anahtarı |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -86,6 +87,15 @@ denetiminden** geçiriliyor (`httpd -t`, `nginx -t`), ancak ondan sonra yeniden
 yükleniyor; denetim başarısız olursa eski dosya geri konuyor, çünkü bozuk bir
 yapılandırmayla yeniden yükleme çalışan siteleri de düşürür. Testler üretilen
 yapılandırmayı gerçekten kurulu nginx ve Apache'ye doğrulattırıyor.
+
+PHP ayarları tarafında: her projenin kendi `php.ini`'si üretiliyor — birinde
+Xdebug açık ve 1 GB bellekle, diğerinde varsayılanlarla çalışabilmek için.
+Katmanlama basit: runtime'ın kendi `php.ini-development`'ı olduğu gibi alınıp
+altına DevBox bloğu ekleniyor; PHP aynı yönergenin sonuncusunu uyguladığı için
+bu doğru önceliği veriyor ve temel dosyayı ayrıştırmak gerekmiyor.
+Varsayılanlardan biri güvenlik gereği: **`cgi.fix_pathinfo=0`** — bu ayar
+açıkken php-cgi yüklenmiş bir resmi PHP olarak çalıştırabiliyor. Web sunucusu
+yapılandırmaları bunu ayrıca engelliyor; burada kapatmak üçüncü savunma hattı.
 
 Port tarafında: Windows'ta bir port "boş görünüp" bağlanamayabiliyor. En sinsi
 sebep **Hyper-V rezervasyonları** — WSL2 ya da Docker Desktop açıkken Windows

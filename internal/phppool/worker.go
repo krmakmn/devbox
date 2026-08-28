@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -23,6 +24,10 @@ type worker struct {
 	ready    bool
 	addr     string
 	requests int
+
+	// fixedPort, havuz kurulurken tahsis edilmiş sabit port. 0 ise her
+	// başlatmada işletim sisteminden yeni port isteniyor.
+	fixedPort int
 
 	// Yalnız run goroutine'i tarafından kullanılır.
 	cmd      *exec.Cmd
@@ -110,9 +115,13 @@ func (w *worker) run(ctx context.Context) {
 
 // spawn, süreci başlatır ve dinlemeye başlayana kadar bekler.
 func (w *worker) spawn(ctx context.Context) error {
-	addr, err := reserveLoopbackPort(w.pool.cfg.Host)
-	if err != nil {
-		return fmt.Errorf("boş port bulunamadı: %w", err)
+	addr := w.assignedAddr()
+	if addr == "" {
+		var err error
+		addr, err = reserveLoopbackPort(w.pool.cfg.Host)
+		if err != nil {
+			return fmt.Errorf("boş port bulunamadı: %w", err)
+		}
 	}
 
 	args := append([]string{"-b", addr}, w.pool.cfg.Args...)
@@ -146,6 +155,14 @@ func (w *worker) spawn(ctx context.Context) error {
 		return fmt.Errorf("işçi %s adresinde dinlemeye başlamadı: %w%s", addr, err, w.stderrSuffix())
 	}
 	return nil
+}
+
+// assignedAddr, sabit port verilmişse adresi döner.
+func (w *worker) assignedAddr() string {
+	if w.fixedPort == 0 {
+		return ""
+	}
+	return net.JoinHostPort(w.pool.cfg.Host, strconv.Itoa(w.fixedPort))
 }
 
 // requestRecycle, işçinin ilk fırsatta yenilenmesini ister. Çağrı

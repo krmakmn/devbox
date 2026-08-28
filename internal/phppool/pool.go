@@ -24,11 +24,13 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/krmakmn/devbox/internal/fastcgi"
+	"github.com/krmakmn/devbox/internal/ports"
 	"github.com/krmakmn/devbox/internal/proc"
 )
 
@@ -71,6 +73,18 @@ type Config struct {
 	// süreyi aşan bir süreç öldüğünde geri çekilme sayacı sıfırlanır.
 	HealthyUptime time.Duration
 
+	// BasePort, işçilere sabit port vermek için başlangıç numarası.
+	//
+	// 0 ise portları işletim sistemi seçer (her açılışta değişir). Sabit
+	// port istemenin sebebi, Apache ve Nginx yapılandırmasının FastCGI
+	// adreslerini önceden bilmek zorunda olması: her açılışta değişen bir
+	// port, yapılandırmayı her açılışta yeniden yazıp sunucuyu yeniden
+	// yüklemek demek.
+	//
+	// Portlar havuz kurulurken bir kez tahsis edilir ve işçi yeniden
+	// başlasa da değişmez.
+	BasePort int
+
 	// Host, işçilerin dinleyeceği arayüz. Boşsa 127.0.0.1.
 	//
 	// Loopback dışına çıkarmak, PHP'yi ağa açmak demektir; php-cgi'de kimlik
@@ -112,8 +126,9 @@ var ErrClosed = errors.New("phppool: havuz kapatıldı")
 
 // Pool, php-cgi işçilerinden oluşan havuzdur.
 type Pool struct {
-	cfg   Config
-	group *proc.Group
+	cfg       Config
+	group     *proc.Group
+	allocator *ports.Allocator
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -147,16 +162,58 @@ func New(cfg Config) (*Pool, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &Pool{cfg: cfg, group: group, ctx: ctx, cancel: cancel}
+	p := &Pool{cfg: cfg, group: group, ctx: ctx, cancel: cancel,
+		allocator: ports.New(cfg.Host)}
+
+	// Sabit port istendiyse hepsini şimdi tahsis ediyoruz: yapılandırma
+	// üretimi adresleri havuz çalışmaya başlamadan önce bilmek zorunda.
+	var fixed []int
+	if cfg.BasePort > 0 {
+		if err := p.allocator.LoadExclusions(ctx); err != nil {
+			// Rezervasyon listesi okunamadıysa devam ediyoruz; bağlama
+			// denemesi zaten doğruyu söylüyor.
+			p.logf("işletim sistemi port rezervasyonları okunamadı: %v", err)
+		}
+		fixed, err = p.allocator.AllocateSeries(cfg.BasePort, cfg.Workers)
+		if err != nil {
+			cancel()
+			group.Close()
+			return nil, err
+		}
+	}
 
 	for i := 0; i < cfg.Workers; i++ {
 		w := newWorker(i, p)
+		if i < len(fixed) {
+			w.fixedPort = fixed[i]
+			w.addr = net.JoinHostPort(cfg.Host, strconv.Itoa(fixed[i]))
+		}
 		p.workers = append(p.workers, w)
 		p.wg.Add(1)
 		go w.run(ctx)
 	}
 	return p, nil
 }
+
+// Addrs, işçilerin FastCGI adreslerini döner.
+//
+// Yalnız BasePort verilmişse anlamlı: adresler o zaman sabittir ve web
+// sunucusu yapılandırmasına yazılabilir. Aksi hâlde her yeniden başlatmada
+// değişirler.
+func (p *Pool) Addrs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.workers))
+	for _, w := range p.workers {
+		if w.addr != "" {
+			out = append(out, w.addr)
+		}
+	}
+	return out
+}
+
+// FixedPorts, havuzun sabit port kullanıp kullanmadığını söyler.
+func (p *Pool) FixedPorts() bool { return p.cfg.BasePort > 0 }
 
 // Ready, en az bir işçi hazır olana kadar bekler.
 func (p *Pool) Ready(ctx context.Context) error {

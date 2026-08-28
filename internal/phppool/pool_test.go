@@ -3,6 +3,7 @@ package phppool
 import (
 	"context"
 	"io"
+	"net"
 	"os"
 	"regexp"
 	"strconv"
@@ -355,4 +356,88 @@ func waitForIdle(t *testing.T, p *Pool, want int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("boştaki işçi sayısı %d, beklenen %d", p.Stats().Idle, want)
+}
+
+// Sabit port istemenin sebebi, Apache ve Nginx yapılandırmasının FastCGI
+// adreslerini önceden bilmek zorunda olması. Her açılışta değişen bir port,
+// yapılandırmayı her açılışta yeniden yazıp sunucuyu yeniden yüklemek demek.
+func TestPoolUsesFixedPortsWhenAsked(t *testing.T) {
+	base := freeTestPort(t)
+	p := newTestPool(t, Config{Workers: 3, BasePort: base})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := p.Ready(ctx); err != nil {
+		t.Fatalf("havuz hazır olmadı: %v", err)
+	}
+	waitForIdle(t, p, 3)
+
+	if !p.FixedPorts() {
+		t.Error("FixedPorts false döndü")
+	}
+	addrs := p.Addrs()
+	if len(addrs) != 3 {
+		t.Fatalf("%d adres döndü, beklenen 3: %v", len(addrs), addrs)
+	}
+	seen := map[string]bool{}
+	for _, a := range addrs {
+		if seen[a] {
+			t.Errorf("aynı adres iki kez: %s", a)
+		}
+		seen[a] = true
+		if _, err := net.DialTimeout("tcp", a, 3*time.Second); err != nil {
+			t.Errorf("bildirilen adrese bağlanılamadı (%s): %v", a, err)
+		}
+	}
+
+	// Asıl mesele: işçi yeniden başlasa da adres değişmemeli, yoksa
+	// yapılandırma bayatlar.
+	body, err := request(t, p, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := pidOf(t, body)
+	if err := killProcess(pid); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if body, err := request(t, p, ""); err == nil && pidOf(t, body) != pid {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	after := p.Addrs()
+	if len(after) != len(addrs) {
+		t.Fatalf("yeniden başlatmadan sonra %d adres, beklenen %d", len(after), len(addrs))
+	}
+	for i := range addrs {
+		if after[i] != addrs[i] {
+			t.Errorf("işçi yeniden başlayınca adres değişti: %s → %s", addrs[i], after[i])
+		}
+	}
+}
+
+func TestPoolWithoutBasePortUsesEphemeralPorts(t *testing.T) {
+	p := newTestPool(t, Config{Workers: 2})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := p.Ready(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p.FixedPorts() {
+		t.Error("BasePort verilmediği hâlde FixedPorts true")
+	}
+}
+
+func freeTestPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
 }
