@@ -3,8 +3,8 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 0 — mimari doğrulama.** PHP FastCGI süreç havuzu ve yerel
-> sertifika otoritesi çalışıyor. Alan adı çözümlemesi ve kenar proxy henüz yok.
+> **Durum: Faz 0 — mimari doğrulama.** PHP FastCGI süreç havuzu, yerel
+> sertifika otoritesi ve `*.test` çözücüsü çalışıyor. Kenar proxy henüz yok.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -24,11 +24,21 @@ Bunun arkasında duran parçalar:
 | `internal/web` | HTTP → FastCGI köprüsü, CGI değişkenleri ve güvenlik denetimleri |
 | `internal/certs` | Yerel kök CA, joker SAN'lı site sertifikaları, sessiz yenileme |
 | `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
+| `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
+| `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
+| `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
 
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Alan adı tarafında: `hosts` dosyası joker desteklemediği için `magaza.test`
+yazmak `admin.magaza.test`'i çözmez. Bunun yerine `*.test`'e cevap veren
+yetkili bir çözücü çalıştırıp Windows'un **NRPT**'sinde yalnız `.test`'i ona
+yönlendiriyoruz; makinenin geri kalan DNS'i (VPN, kurumsal ağ, split-DNS)
+hiç etkilenmiyor. Çözücü kasten özyinelemesiz ve yalnız kendi son eklerine
+cevap veriyor — açık çözücü olarak kötüye kullanılamaz.
 
 Sertifika tarafında iki ayrım noktası:
 

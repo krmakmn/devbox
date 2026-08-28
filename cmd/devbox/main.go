@@ -22,6 +22,9 @@ import (
 	"time"
 
 	"github.com/krmakmn/devbox/internal/certs"
+	"github.com/krmakmn/devbox/internal/dns"
+	"github.com/krmakmn/devbox/internal/hostsfile"
+	"github.com/krmakmn/devbox/internal/nrpt"
 	"github.com/krmakmn/devbox/internal/paths"
 	"github.com/krmakmn/devbox/internal/phppool"
 	"github.com/krmakmn/devbox/internal/trust"
@@ -52,6 +55,8 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "trust":
 		return runTrust(args[1:])
+	case "dns":
+		return runDNS(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -70,6 +75,7 @@ func usage() {
 Kullanım:
   devbox serve [seçenekler]   bir dizini PHP ile sun
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
+  devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
   devbox version              sürümü yazdır
   devbox help                 bu yardımı göster
 
@@ -238,13 +244,15 @@ func runTrust(args []string) error {
   path        kök sertifika dosyasının yolunu yazdır
 `)
 	}
-	if err := fs.Parse(args); err != nil {
+	// Alt komutu bayraklardan önce ayırıyoruz: flag paketi ilk konumsal
+	// argümandan sonra ayrıştırmayı durdurur, yani "serve -addr ..."
+	// yazıldığında -addr sessizce yok sayılırdı.
+	sub, rest := splitSubcommand(args, "status")
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-
-	sub := "status"
 	if fs.NArg() > 0 {
-		sub = fs.Arg(0)
+		return fmt.Errorf("alt komut bayraklardan önce gelmeli: %q", fs.Arg(0))
 	}
 
 	store, err := certs.Open(paths.CertsDir())
@@ -302,6 +310,179 @@ func runTrust(args []string) error {
 		fs.Usage()
 		return fmt.Errorf("bilinmeyen alt komut %q", sub)
 	}
+}
+
+func runDNS(args []string) error {
+	fs := flag.NewFlagSet("dns", flag.ContinueOnError)
+	var (
+		addr    = fs.String("addr", dns.DefaultAddr, "çözücünün dinleyeceği adres")
+		suffix  = fs.String("suffix", "test", "sahiplenilecek son ek (virgülle birden fazla)")
+		useHost = fs.Bool("hosts", false, "NRPT yerine hosts dosyasını kullan")
+		names   = fs.String("names", "", "hosts kipinde yazılacak adlar (virgülle)")
+	)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Kullanım: devbox dns <alt komut> [seçenekler]
+
+  serve      yerel çözücüyü çalıştır (Ctrl+C ile durur)
+  install    NRPT kuralını ekle (yönetici hakkı ister)
+  uninstall  NRPT kuralını kaldır
+  status     kuralların durumunu göster
+
+`)
+		fs.PrintDefaults()
+	}
+	// Alt komutu bayraklardan önce ayırıyoruz: flag paketi ilk konumsal
+	// argümandan sonra ayrıştırmayı durdurur, yani "serve -addr ..."
+	// yazıldığında -addr sessizce yok sayılırdı.
+	sub, rest := splitSubcommand(args, "status")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("alt komut bayraklardan önce gelmeli: %q", fs.Arg(0))
+	}
+	suffixes := splitList(*suffix)
+	if len(suffixes) == 0 {
+		return errors.New("en az bir son ek gerekli")
+	}
+
+	switch sub {
+	case "serve":
+		return serveDNS(*addr, suffixes)
+
+	case "install":
+		if *useHost || !nrpt.Supported() {
+			return installHosts(splitList(*names))
+		}
+		host, _ := splitPort(*addr)
+		rule := nrpt.Rule{
+			Namespace: "." + suffixes[0],
+			Servers:   []string{host},
+			Comment:   nrpt.DefaultComment,
+		}
+		if err := nrpt.Add(rule); err != nil {
+			return fmt.Errorf("%w\n\nYönetici olarak çalıştırın ya da geri düşüş için: devbox dns install -hosts -names <adlar>", err)
+		}
+		fmt.Printf("NRPT kuralı eklendi: %s → %s\n", rule.Namespace, host)
+		fmt.Println("Çözücüyü çalıştırmayı unutmayın: devbox dns serve")
+		return nil
+
+	case "uninstall":
+		if *useHost || !nrpt.Supported() {
+			if err := hostsfile.Remove(hostsfile.Path()); err != nil {
+				return err
+			}
+			fmt.Println("hosts dosyasındaki DevBox bloğu kaldırıldı")
+			return nil
+		}
+		if err := nrpt.Remove("." + suffixes[0]); err != nil {
+			return err
+		}
+		fmt.Println("NRPT kuralı kaldırıldı")
+		return nil
+
+	case "status":
+		return dnsStatus(suffixes)
+
+	default:
+		fs.Usage()
+		return fmt.Errorf("bilinmeyen alt komut %q", sub)
+	}
+}
+
+func serveDNS(addr string, suffixes []string) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	srv := dns.New(dns.Config{Addr: addr, Suffixes: suffixes, Logger: logger})
+
+	if err := srv.Start(); err != nil {
+		return fmt.Errorf("%w\n\nPort 53 başkası tarafından tutuluyor olabilir; -addr ile başka bir loopback adresi deneyin", err)
+	}
+	defer srv.Close()
+
+	logger.Info("çözücü başladı", "adres", srv.Addr(), "son ekler", strings.Join(suffixes, ", "))
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	return nil
+}
+
+func installHosts(names []string) error {
+	if len(names) == 0 {
+		return errors.New("hosts kipinde -names ile en az bir alan adı verilmeli")
+	}
+	entries := []hostsfile.Entry{{IP: "127.0.0.1", Names: names}}
+	path := hostsfile.Path()
+	if err := hostsfile.Apply(path, entries); err != nil {
+		return err
+	}
+	fmt.Printf("%s dosyasına yazıldı: %s\n", path, strings.Join(names, " "))
+	fmt.Println("not: hosts joker desteklemez; alt alan adları için ayrı satır gerekir")
+	return nil
+}
+
+func dnsStatus(suffixes []string) error {
+	fmt.Println("son ekler:", strings.Join(suffixes, ", "))
+
+	if nrpt.Supported() {
+		rules, err := nrpt.List()
+		if err != nil {
+			fmt.Println("NRPT     : sorgulanamadı —", err)
+		} else {
+			var mine int
+			for _, r := range rules {
+				if r.Comment == nrpt.DefaultComment {
+					mine++
+					fmt.Printf("NRPT     : %s → %s\n", r.Namespace, strings.Join(r.Servers, ", "))
+				}
+			}
+			if mine == 0 {
+				fmt.Println("NRPT     : DevBox kuralı yok (devbox dns install)")
+			}
+		}
+	} else {
+		fmt.Println("NRPT     : bu platformda yok")
+	}
+
+	entries, err := hostsfile.Managed(hostsfile.Path())
+	if err != nil {
+		fmt.Println("hosts    : okunamadı —", err)
+		return nil
+	}
+	if len(entries) == 0 {
+		fmt.Println("hosts    : DevBox bloğu yok")
+		return nil
+	}
+	for _, e := range entries {
+		fmt.Printf("hosts    : %s %s\n", e.IP, strings.Join(e.Names, " "))
+	}
+	return nil
+}
+
+// splitSubcommand, alt komutu argümanların başından ayırır.
+//
+// Alt komut ilk sırada olmak zorunda; git, go ve docker de böyle çalışır.
+// Bayrakların arasından alt komut aramaya kalkmak, "-addr 127.0.0.1 serve"
+// gibi bir çağrıda bayrağın değerini alt komut sanmaya yol açar — hangi
+// bayrağın değer aldığını bilmeden bunu doğru yapmanın yolu yok.
+//
+// Bayrakların ardından gelen bir alt komut sessizce yok sayılmaz: çağıran
+// fs.NArg() ile artık argümanı görüp açık bir hata verir.
+func splitSubcommand(args []string, fallback string) (sub string, rest []string) {
+	if len(args) > 0 && args[0] != "" && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return fallback, args
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // findPHPCGI, php-cgi'yi bulur. Verilen yol doğrudan denenir; verilmediyse
