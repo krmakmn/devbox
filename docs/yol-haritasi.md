@@ -4,6 +4,21 @@
 > yetenekli bir Windows yerel geliştirme yığını. Bu belge bir ürün ve mühendislik
 > yol haritasıdır: mimari kararlar, gerekçeleri, faz planı, riskler.
 
+> **Faz 0 tamamlandı.** Dört prototip de yazıldı ve testleriyle birlikte
+> depoda. Prototipler iki mimari kararı değiştirdi; ilgili bölümler
+> güncellendi ve değişiklikler **"Prototip bulguları"** başlığında toplandı.
+
+---
+
+## 0. Prototip bulguları (Faz 0 sonucu)
+
+| Varsayım | Gerçek | Sonuç |
+|---|---|---|
+| Çözücü 53535 gibi yüksek bir portta çalışır, NRPT kuralı portu taşır | **NRPT kuralı yalnız sunucu IP'si alır, port taşıyamaz** | Çözücü 53'te dinlemek zorunda. Windows'ta 1024 altı portlar ayrıcalıklı olmadığı için yönetici hakkı gerekmiyor. Çakışmayı önlemek için 127.0.0.1 yerine **127.0.0.53** kullanılıyor |
+| Kenar proxy için Caddy kütüphane olarak gömülür | **Kenarın ihtiyacı olan her şey standart kütüphanede var** | `httputil.ReverseProxy` ile host tabanlı yönlendirme, TLS sonlandırma ve WebSocket yükseltmesi çalışıyor. Caddy'nin asıl değeri `acme_server`; bağımlılık **Faz 7'ye ertelendi** ve depo bağımlılıksız kaldı |
+| php-cgi havuzu en riskli parça | Doğrulandı, çalışıyor | Kendi FastCGI istemcimiz ve süreç havuzumuz yazıldı; en ince nokta işçi tahsisindeki yarış oldu (bkz. 4.4) |
+| Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
+
 ---
 
 ## 1. Hedef
@@ -11,8 +26,8 @@
 Tek bir kurulumla, yönetici hakkı gerektirmeyen gündelik kullanımda, bir Windows
 makinesinde şunları veren bir ortam:
 
-- Aynı anda çalışan **birden fazla web sunucusu** (Apache + Nginx + Caddy), proje
-  başına seçilebilir.
+- Aynı anda çalışan **birden fazla web sunucusu** (Apache + Nginx + uygulama
+  süreçleri), proje başına seçilebilir.
 - Yan yana duran **çoklu runtime sürümleri** (PHP 7.4–8.4, Node, Python, Go).
 - **Çoklu veritabanı örneği**: MySQL, MariaDB, PostgreSQL — farklı sürümleri aynı
   anda, proje başına ayrı veri dizini ve portla.
@@ -91,7 +106,7 @@ betiklenebilen Windows geliştirme yığını."*
                      │                             • güvenlik duvarı kuralı
                      │                             • servis kaydı
    ┌─────────────────┼─────────────────────────────────────────────┐
-   │         Kenar (edge): Caddy — 80/443, TLS sonlandırma         │
+   │      Kenar (edge): stdlib ters vekil — 80/443, TLS sonlandırma │
    └───┬─────────┬─────────┬──────────┬──────────┬─────────────────┘
        │         │         │          │          │
    Apache    Nginx     php-cgi     Node/Go    Konteyner
@@ -108,7 +123,7 @@ betiklenebilen Windows geliştirme yığını."*
 | Katman | Seçim | Neden |
 |---|---|---|
 | Çekirdek servis | **Go 1.23+** | Tek statik `.exe`, `x/sys/windows/svc` ile yerel Windows servisi, Job Object/İş nesnesi API'sine kolay erişim, `crypto/x509` ile CA işleri kütüphanesiz |
-| Kenar proxy | **Caddy** (kütüphane olarak gömülü) | Otomatik HTTPS ve **`acme_server`** modülü hazır; Go olduğu için `devboxd` içine gömülebilir, ayrı süreç bile gerekmez |
+| Kenar proxy | **Standart kütüphane** (`httputil.ReverseProxy`) | Prototip D'nin bulgusu: kenarın ihtiyacı olan her şey stdlib'de var — host tabanlı yönlendirme, TLS sonlandırma, WebSocket yükseltmesi. Caddy'nin asıl değeri `acme_server` modülü; o bağımlılık gerçekten gerekli olduğunda (Faz 7) eklenecek |
 | GUI | **Tauri 2 + Svelte/React** | ~10 MB kurulum, WebView2 zaten Windows'ta var; Electron'un 150 MB'ı ve RAM maliyeti yok |
 | CLI | Aynı Go ikilisi, `devbox` alt komutları | GUI ile **tek API** üzerinden konuşur; GUI'nin yapabildiği her şey betiklenebilir |
 | Yapılandırma üretimi | `text/template` + atomik dosya yazımı | Kısmi yazılmış conf ile sunucu çökmesin |
@@ -140,7 +155,7 @@ Laragon'un tamamı yönetici olarak çalışır. DevBox'da:
 Laragon'un "Apache mı Nginx mi" seçimi mimari bir zorunluluk değil, sadece 80.
 portu tek sürecin dinlemesinden kaynaklanıyor. Çözüm:
 
-- 80/443'ü **yalnızca kenar (Caddy)** dinler, TLS'i orada sonlandırırız.
+- 80/443'ü **yalnızca kenar** dinler, TLS'i orada sonlandırırız.
 - Apache `127.0.0.1:8080`, Nginx `127.0.0.1:8081`, Node uygulaması `:3000`,
   konteyner `:32768` — hepsi düz HTTP, yalnız loopback'te.
 - Yönlendirme host adına göre: `blog.test → Apache`, `api.test → Nginx`,
@@ -171,8 +186,16 @@ HSTS ön yüklemeli, zorunlu HTTPS), `.local` kullanılmaz (mDNS'e ait).
 
 İki katmanlı çözüm:
 
-1. `devboxd` içinde küçük bir **DNS sunucusu** (`127.0.0.1:53535`), `*.test`'i
+1. `devboxd` içinde küçük bir **DNS sunucusu** (`127.0.0.53:53`), `*.test`'i
    `127.0.0.1`'e cevaplar; bilinmeyen her şeyi yukarı akışa iletmez, reddeder.
+
+   Port neden 53: **NRPT kuralı yalnız bir sunucu IP'si alır, port taşıyamaz.**
+   Yüksek bir portta dinleyip NRPT ile oraya yönlendirmek mümkün değil.
+   Windows'ta 1024 altındaki portlar ayrıcalıklı olmadığı için bu yönetici
+   hakkı gerektirmiyor (Unix'in aksine). IP olarak 127.0.0.1 yerine
+   **127.0.0.53** seçildi: 127/8'in tamamı loopback'e bağlı olduğundan ayrı
+   bir adres kullanmak, 127.0.0.1:53'ü tutan Docker Desktop / ICS / kurumsal
+   DNS ajanlarıyla çakışmayı baştan önlüyor.
 2. Helper, **NRPT** kuralı yazar:
    `Add-DnsClientNrptRule -Namespace ".test" -NameServers "127.0.0.1"`
    Böylece yalnızca `.test` sorguları yerel çözücüye gider; makinenin geri kalan
@@ -197,7 +220,8 @@ sıfır yapılandırmayla çalışır — Laragon'da mümkün değil.
    30 gün kala **sessizce yeniler**. Yerel olarak güvenilen kök, CT ve 398 gün
    sınırından muaftır; yine de kısa ömür ilkesini koruyoruz.
 4. **Yerel ACME sunucusu** (`https://acme.devbox.test/acme/directory`): Caddy'nin
-   `acme_server` modülü. Böylece konteynerdeki Traefik, `certbot`, `lego` veya
+   `acme_server` modülü. Caddy bağımlılığı **yalnız bunun için** eklenecek;
+   kenar proxy'nin ona ihtiyacı olmadığı Faz 0'da görüldü. Böylece konteynerdeki Traefik, `certbot`, `lego` veya
    ekibin kendi aracı sertifikayı standart yolla alır. Bu özellik hiçbir rakipte
    hazır gelmiyor; asıl farklılaştırıcı burası.
 5. `devbox cert trust --wsl` / `--java` / `--firefox` gibi açık komutlar; ne
@@ -307,9 +331,11 @@ Bunlar sonradan keşfedilirse takvimi haftalarca kaydırır:
 
 Tahminler 2 kişilik bir ekip içindir. **MVP Faz 3 sonunda** (≈ 4. ay).
 
-### Faz 0 — Keşif ve mimari doğrulama · 3 hafta
-- Riskli parçalar için tek kullanımlık prototipler: FastCGI havuzu, NRPT kuralı,
-  helper IPC, Caddy'yi kütüphane olarak gömme.
+### Faz 0 — Keşif ve mimari doğrulama · 3 hafta — **tamamlandı**
+- Riskli parçalar için prototipler: FastCGI havuzu, iç CA + güven deposu,
+  `*.test` çözücüsü + NRPT, kenar proxy.
+- Prototipler tek kullanımlık olmadı: dördü de testleriyle birlikte `internal/`
+  altında duruyor ve Faz 1–3'ün temeli olarak kullanılacak.
 - Runtime kayıt defteri şeması ve `devbox.yaml` JSON Schema taslağı.
 - **Kabul:** dört prototip de Windows 10 ve 11'de çalışıyor; NRPT'nin kurumsal
   politika altında yazılabilirliği doğrulandı.
@@ -420,7 +446,7 @@ rahat; özellikle MySQL için (Oracle, GPL) bu tercih edilmeli.
 |---|---|---|
 | Apache httpd | Apache-2.0 | Serbest; Windows derlemeleri için Apache Lounge |
 | Nginx | 2-clause BSD | Serbest |
-| Caddy | Apache-2.0 | Gömülebilir |
+| Caddy | Apache-2.0 | Yalnız ACME sunucusu için, Faz 7'de |
 | PHP | PHP License | Serbest, adlandırma kısıtına dikkat |
 | MySQL | GPL-2.0 (istisnalı) | **İndirerek kur**, paketleme yapma |
 | MariaDB | GPL-2.0 | Aynı yaklaşım |
@@ -457,8 +483,9 @@ ticarileşme istenirse ekip/uzak özellikleri ayrı katmanda.
    ve kurumsal makinede davranış.
 4. **Prototip C:** Go ile iç CA üret, `CurrentUser\Root`'a ve Firefox NSS'e kur,
    üretilen sertifikayla Chrome + Firefox'ta uyarısız `https://` doğrula.
-5. **Prototip D:** Caddy'yi kütüphane olarak `devboxd`e göm, 443'ü dinlet,
-   `127.0.0.1:8080`'e yönlendir.
+5. **Prototip D:** kenar proxy — 443'ü dinle, host adına göre
+   `127.0.0.1:8080` ve `:8081`'e dağıt. *(Caddy gömmeyi denemeden önce
+   stdlib'in yettiği görüldü; bkz. bölüm 0.)*
 6. Kod imzalama sertifikası başvurusunu başlat (teslim süresi haftaları bulur).
 
 ---

@@ -23,6 +23,7 @@ import (
 
 	"github.com/krmakmn/devbox/internal/certs"
 	"github.com/krmakmn/devbox/internal/dns"
+	"github.com/krmakmn/devbox/internal/edge"
 	"github.com/krmakmn/devbox/internal/hostsfile"
 	"github.com/krmakmn/devbox/internal/nrpt"
 	"github.com/krmakmn/devbox/internal/paths"
@@ -57,6 +58,8 @@ func run(args []string) error {
 		return runTrust(args[1:])
 	case "dns":
 		return runDNS(args[1:])
+	case "edge":
+		return runEdge(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -76,6 +79,7 @@ Kullanım:
   devbox serve [seçenekler]   bir dizini PHP ile sun
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
+  devbox edge [seçenekler]    80/443'ü dinle, host adına göre dağıt
   devbox version              sürümü yazdır
   devbox help                 bu yardımı göster
 
@@ -310,6 +314,103 @@ func runTrust(args []string) error {
 		fs.Usage()
 		return fmt.Errorf("bilinmeyen alt komut %q", sub)
 	}
+}
+
+// routeList, tekrarlanabilir -route bayrağını toplar.
+type routeList []string
+
+func (r *routeList) String() string { return strings.Join(*r, ", ") }
+
+func (r *routeList) Set(v string) error {
+	if !strings.Contains(v, "=") {
+		return fmt.Errorf("yönlendirme host=hedef biçiminde olmalı: %q", v)
+	}
+	*r = append(*r, v)
+	return nil
+}
+
+func runEdge(args []string) error {
+	fs := flag.NewFlagSet("edge", flag.ContinueOnError)
+	var routes routeList
+	fs.Var(&routes, "route", "host=hedef (birden çok kez verilebilir), ör. magaza.test=http://127.0.0.1:8080")
+	var (
+		httpAddr  = fs.String("http", ":80", "HTTP dinleme adresi (HTTPS'e yönlendirir)")
+		httpsAddr = fs.String("https", ":443", "HTTPS dinleme adresi")
+		noTLS     = fs.Bool("no-tls", false, "yalnız HTTP sun (sertifika kullanma)")
+	)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Kullanım: devbox edge -route <host>=<hedef> [...]
+
+80 ve 443'ü tek başına dinler, istekleri host adına göre arka uçlara dağıtır.
+Böylece Apache, Nginx ve uygulama süreçleri aynı anda çalışabilir.
+
+Örnek:
+  devbox edge -route blog.test=http://127.0.0.1:8080 \
+              -route api.test=http://127.0.0.1:8081
+
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(routes) == 0 {
+		fs.Usage()
+		return errors.New("en az bir -route gerekli")
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	e := edge.New()
+	e.Logger = logger
+	if _, port := splitPort(*httpsAddr); port != "" {
+		e.HTTPSPort = port
+	}
+
+	for _, spec := range routes {
+		host, target, _ := strings.Cut(spec, "=")
+		host, target = strings.TrimSpace(host), strings.TrimSpace(target)
+		if err := e.Proxy(host, target); err != nil {
+			return err
+		}
+		logger.Info("yönlendirme", "host", host, "hedef", target)
+	}
+
+	srv := &edge.Server{Edge: e, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr}
+	if !*noTLS {
+		store, err := certs.Open(paths.CertsDir())
+		if err != nil {
+			return fmt.Errorf("sertifika deposu açılamadı: %w", err)
+		}
+		srv.TLSConfig = store.TLSConfig()
+
+		if installed, err := trust.IsInstalled(store.RootCertPath()); err == nil && !installed {
+			logger.Warn("kök sertifika güven deposunda değil; tarayıcı uyarı verecek",
+				"çözüm", "devbox trust install")
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stop
+		cancel()
+	}()
+
+	logger.Info("kenar sunucu başladı", "http", *httpAddr, "https", *httpsAddr,
+		"siteler", strings.Join(e.Hosts(), ", "))
+
+	if *noTLS {
+		httpSrv := &http.Server{Addr: *httpAddr, Handler: e, ReadHeaderTimeout: 15 * time.Second}
+		go func() { <-ctx.Done(); httpSrv.Close() }()
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	}
+	return srv.ListenAndServe(ctx)
 }
 
 func runDNS(args []string) error {

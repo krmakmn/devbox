@@ -3,8 +3,9 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 0 — mimari doğrulama.** PHP FastCGI süreç havuzu, yerel
-> sertifika otoritesi ve `*.test` çözücüsü çalışıyor. Kenar proxy henüz yok.
+> **Durum: Faz 0 tamamlandı.** Dört prototip de çalışıyor ve testleri var:
+> PHP FastCGI süreç havuzu, yerel sertifika otoritesi, `*.test` çözücüsü ve
+> kenar proxy. Sırada Faz 1 (çekirdek servis ve runtime kayıt defteri) var.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -24,6 +25,7 @@ Bunun arkasında duran parçalar:
 | `internal/web` | HTTP → FastCGI köprüsü, CGI değişkenleri ve güvenlik denetimleri |
 | `internal/certs` | Yerel kök CA, joker SAN'lı site sertifikaları, sessiz yenileme |
 | `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
+| `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
@@ -32,6 +34,13 @@ Bunun arkasında duran parçalar:
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Kenar tarafında: Laragon'daki "Apache **veya** Nginx" seçimi mimari bir
+zorunluluk değil, sadece 80. portu tek sürecin dinleyebilmesinden kaynaklanıyor.
+Kenarı ayırınca kısıt kalkıyor — `.htaccess`'e bağımlı bir WordPress ile Nginx
+isteyen bir Laravel aynı anda çalışabiliyor. Kenar için Caddy gömmeye gerek
+olmadığı görüldü: host tabanlı yönlendirme, TLS sonlandırma ve WebSocket
+yükseltmesi standart kütüphaneyle çalışıyor, depo bağımlılıksız kalıyor.
 
 Alan adı tarafında: `hosts` dosyası joker desteklemediği için `magaza.test`
 yazmak `admin.magaza.test`'i çözmez. Bunun yerine `*.test`'e cevap veren
