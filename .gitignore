@@ -1,0 +1,25 @@
+# Go
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.syso
+
+# Tauri / Node
+node_modules/
+/gui/src-tauri/target/
+/gui/dist/
+
+# Yerel ortam ve gizli veriler
+*.pem
+*.key
+*.pfx
+/.devbox/
+devbox.local.yaml
+
+# Editör / işletim sistemi
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -1,0 +1,477 @@
+# Windows Yerel Geliştirme Ortamı — Yol Haritası
+
+> Kod adı: **DevBox**. Laragon'un yerini alacak, ondan belirgin biçimde daha
+> yetenekli bir Windows yerel geliştirme yığını. Bu belge bir ürün ve mühendislik
+> yol haritasıdır: mimari kararlar, gerekçeleri, faz planı, riskler.
+
+---
+
+## 1. Hedef
+
+Tek bir kurulumla, yönetici hakkı gerektirmeyen gündelik kullanımda, bir Windows
+makinesinde şunları veren bir ortam:
+
+- Aynı anda çalışan **birden fazla web sunucusu** (Apache + Nginx + Caddy), proje
+  başına seçilebilir.
+- Yan yana duran **çoklu runtime sürümleri** (PHP 7.4–8.4, Node, Python, Go).
+- **Çoklu veritabanı örneği**: MySQL, MariaDB, PostgreSQL — farklı sürümleri aynı
+  anda, proje başına ayrı veri dizini ve portla.
+- **Yerel alan adı**: `proje.test` yazınca çalışsın, `hosts` dosyasına elle satır
+  eklemeden, joker (`*.test`) desteğiyle.
+- **Otomatik TLS**: ilk açılışta üretilen yerel CA, tarayıcıların ve Firefox'un
+  güven deposuna kurulu; her siteye otomatik sertifika, otomatik yenileme,
+  ayrıca **yerel ACME sunucusu** (konteynerdeki Caddy/Traefik/certbot da alsın).
+- **Yerel posta**: giden tüm SMTP trafiğini yakalayan, web arayüzü ve API'si olan
+  bir posta kutusu.
+- Her şeyin **CLI + REST API + GUI** ile eşit biçimde yönetilebilmesi.
+
+Kısaca: Laragon'un kolaylığı, DDEV'in yeniden üretilebilirliği, Herd'ün cilası.
+
+---
+
+## 2. Laragon'da somut olarak ne eksik
+
+Yol haritasının her maddesi bu listeden birine cevap verir.
+
+| Kısıt | Sonucu |
+|---|---|
+| Aynı anda tek web sunucusu (Apache **veya** Nginx) | Nginx'te çalışan projeyle Apache `.htaccess`'e bağımlı projeyi birlikte açamazsınız |
+| `hosts` dosyası yeniden yazılarak alan adı | Joker alt alan adı yok; `hosts` şişer; her değişiklik yükseltilmiş hak ister |
+| Tek, uzun ömürlü ve elle üretilen kök sertifika | Firefox güvenmez, Chrome uyarır, yenileme yok, ACME yok |
+| Runtime'lar elle indirilip klasöre atılır | Sürüm doğrulama, bütünlük (SHA256), geri alma, temizlik yok |
+| Servisler tek bir GUI süreci altında | GUI kapanınca artık süreçler kalır; sağlık denetimi/otomatik yeniden başlatma yok |
+| Yapılandırma makineye gömülü | Proje ayarları depoya girmez, ekip arkadaşınızda aynı ortam oluşmaz |
+| PostgreSQL yok, çoklu DB örneği yok | Bir projede PG 16, diğerinde MySQL 8 senaryosu kurulamaz |
+| Betiklenemez | CI'da veya `winget` sonrası otomatik kurulum yapılamaz |
+
+---
+
+## 3. Rakip konumlandırma
+
+- **Laragon** — hızlı ve hafif, ama yukarıdaki kısıtlar. Kapalı kaynak çekirdek.
+- **XAMPP / WampServer** — eski mimari, sürüm yönetimi yok.
+- **Laravel Herd (Windows)** — en yakın rakip, cilalı; ama Laravel/PHP odaklı,
+  kapalı kaynak, ileri özellikler ücretli. **Farkımız:** çerçeve bağımsızlık,
+  çoklu veritabanı ve çoklu web sunucusu, açık mimari, depoya giren proje tanımı.
+- **DDEV / Lando** — yeniden üretilebilir ama Docker zorunlu, Windows'ta dosya
+  sistemi ve soğuk başlatma maliyeti yüksek. **Farkımız:** yerel (native) hız,
+  konteyner *opsiyonel* sürücü.
+- **Scoop / winget** — paket kurar, orkestrasyon yapmaz. Runtime kayıt defteri
+  tasarımında ilham kaynağı.
+
+Konum cümlesi: *"Yerel hızda çalışan, ama proje tanımı depoya giren ve
+betiklenebilen Windows geliştirme yığını."*
+
+---
+
+## 4. Mimari
+
+```
+┌───────────────┐   ┌───────────────┐   ┌───────────────────┐
+│  DevBox GUI   │   │  devbox CLI   │   │ VS Code eklentisi │
+│  (Tauri 2)    │   │               │   │                   │
+└───────┬───────┘   └───────┬───────┘   └─────────┬─────────┘
+        └───────────────────┴─────────────────────┘
+                            │  REST + WebSocket (127.0.0.1, token'lı)
+                 ┌──────────▼───────────┐
+                 │     devboxd (Go)     │  kullanıcı hakkıyla çalışır
+                 │  ──────────────────  │
+                 │ süreç denetçisi      │  Job Object, sağlık, log
+                 │ yapılandırma üretici │  text/template → vhost/ini/conf
+                 │ runtime kayıt defteri│  indir, SHA256 doğrula, sürümle
+                 │ sertifika yöneticisi │  iç CA + ACME sunucusu
+                 │ proje modeli         │  devbox.yaml
+                 └───┬──────────────┬───┘
+                     │              │ adlandırılmış boru (SDDL ACL'li)
+                     │   ┌──────────▼───────────┐
+                     │   │ devbox-helper        │ LocalSystem servisi
+                     │   │ (yalnız 6 ayrıcalıklı│  • 80/443 bağla
+                     │   │  işlem, izin listeli)│  • NRPT / hosts yaz
+                     │   └──────────────────────┘  • sertifika deposu
+                     │                             • güvenlik duvarı kuralı
+                     │                             • servis kaydı
+   ┌─────────────────┼─────────────────────────────────────────────┐
+   │         Kenar (edge): Caddy — 80/443, TLS sonlandırma         │
+   └───┬─────────┬─────────┬──────────┬──────────┬─────────────────┘
+       │         │         │          │          │
+   Apache    Nginx     php-cgi     Node/Go    Konteyner
+   :8080     :8081      havuzu     süreçleri  (WSL2/Docker sürücüsü)
+       │
+   ┌───┴────────────────────────────────────────────────────────┐
+   │ MySQL 8 · MariaDB 11 · PostgreSQL 16/17 · Redis · Mailpit  │
+   │ MinIO · Meilisearch — her biri ayrı örnek, ayrı veri dizini │
+   └────────────────────────────────────────────────────────────┘
+```
+
+### 4.1 Teknoloji seçimleri ve gerekçe
+
+| Katman | Seçim | Neden |
+|---|---|---|
+| Çekirdek servis | **Go 1.23+** | Tek statik `.exe`, `x/sys/windows/svc` ile yerel Windows servisi, Job Object/İş nesnesi API'sine kolay erişim, `crypto/x509` ile CA işleri kütüphanesiz |
+| Kenar proxy | **Caddy** (kütüphane olarak gömülü) | Otomatik HTTPS ve **`acme_server`** modülü hazır; Go olduğu için `devboxd` içine gömülebilir, ayrı süreç bile gerekmez |
+| GUI | **Tauri 2 + Svelte/React** | ~10 MB kurulum, WebView2 zaten Windows'ta var; Electron'un 150 MB'ı ve RAM maliyeti yok |
+| CLI | Aynı Go ikilisi, `devbox` alt komutları | GUI ile **tek API** üzerinden konuşur; GUI'nin yapabildiği her şey betiklenebilir |
+| Yapılandırma üretimi | `text/template` + atomik dosya yazımı | Kısmi yazılmış conf ile sunucu çökmesin |
+| Şema | JSON Schema'lı `devbox.yaml` | Editör tamamlaması ve doğrulama |
+
+**Karar:** GUI asla iş mantığı içermez. Her özellik önce API'de doğar, CLI ve GUI
+onu tüketir. Bu, Laragon'dan en büyük yapısal ayrışma.
+
+### 4.2 Yetki ayrımı (güvenliğin kalbi)
+
+Laragon'un tamamı yönetici olarak çalışır. DevBox'da:
+
+- `devboxd` **normal kullanıcı** hakkıyla çalışır.
+- `devbox-helper` LocalSystem servisi yalnızca şu işlemleri yapar ve her birinin
+  girdisi **izin listesiyle** doğrulanır:
+  1. 80/443 dinleme yetkisi (`http.sys` URL ACL / port ayırma)
+  2. `hosts` dosyası ve **NRPT** kuralı yazma
+  3. Kök sertifikayı `LocalMachine\Root`'a kurma/kaldırma
+  4. Güvenlik duvarı kuralı ekleme
+  5. Servis kaydı (yalnız DevBox'a ait servis adları)
+  6. Hyper-V dışlanan port aralığı sorgusu
+- IPC: adlandırılmış boru, SDDL ile **yalnız kuran kullanıcıya** açık.
+- Helper hiçbir zaman "şu komutu çalıştır" tarzı genel bir uç nokta sunmaz —
+  aksi hâlde yerel ayrıcalık yükseltme (LPE) açığı üretmiş oluruz. Bu, faz
+  planındaki güvenlik denetiminin ana maddesi.
+
+### 4.3 Kenar proxy modeli — aynı anda birden fazla web sunucusu
+
+Laragon'un "Apache mı Nginx mi" seçimi mimari bir zorunluluk değil, sadece 80.
+portu tek sürecin dinlemesinden kaynaklanıyor. Çözüm:
+
+- 80/443'ü **yalnızca kenar (Caddy)** dinler, TLS'i orada sonlandırırız.
+- Apache `127.0.0.1:8080`, Nginx `127.0.0.1:8081`, Node uygulaması `:3000`,
+  konteyner `:32768` — hepsi düz HTTP, yalnız loopback'te.
+- Yönlendirme host adına göre: `blog.test → Apache`, `api.test → Nginx`,
+  `app.test → Node`. Proje `devbox.yaml`'ında `server: apache|nginx|caddy|proxy`.
+- Bonus: kenar, istek/yanıtları **HTTP denetleyicisine** aynalar (bkz. Faz 7) ve
+  tüm projelere ortak HSTS/CORS/gzip politikası uygular.
+
+### 4.4 PHP çalıştırma modeli (Windows'ta PHP-FPM yok)
+
+Bu, projenin en çok mühendislik isteyen teknik parçası; Laragon burada zayıf.
+
+- Windows'ta `php-fpm` yok; elde `php-cgi.exe` (tek istek, sonra ölür) var.
+- Çözüm: **kendi FastCGI süreç havuzu yöneticimiz**. `devboxd` N adet
+  `php-cgi.exe -b 127.0.0.1:PORT` başlatır (`PHP_FCGI_MAX_REQUESTS` ile
+  dönüşümlü yenileme), sağlığını dinler, ölürse yerine yenisini koyar,
+  isteği en boş işçiye dağıtır.
+- Havuz **proje başına**: farklı PHP sürümü, farklı `php.ini`, farklı bellek
+  limiti, Xdebug açık/kapalı — hepsi izole.
+- Apache tarafında `mod_proxy_fcgi` ile aynı havuza bağlanılır; `mod_php`
+  kullanılmaz (iş parçacığı güvenliği ve sürüm kilitlenmesi yüzünden).
+- Xdebug anahtarı: ayrı bir `php.ini` katmanı + havuzun sıcak yeniden başlatılması
+  (bağlantılar boşalınca), böylece "Xdebug'ı aç" 1 saniye sürer.
+
+### 4.5 Yerel alan adı — `hosts` değil, NRPT
+
+Doğru TLD: **`.test`** (RFC 6761 ile ayrılmış). `.dev` kullanılmaz (Chrome'da
+HSTS ön yüklemeli, zorunlu HTTPS), `.local` kullanılmaz (mDNS'e ait).
+
+İki katmanlı çözüm:
+
+1. `devboxd` içinde küçük bir **DNS sunucusu** (`127.0.0.1:53535`), `*.test`'i
+   `127.0.0.1`'e cevaplar; bilinmeyen her şeyi yukarı akışa iletmez, reddeder.
+2. Helper, **NRPT** kuralı yazar:
+   `Add-DnsClientNrptRule -Namespace ".test" -NameServers "127.0.0.1"`
+   Böylece yalnızca `.test` sorguları yerel çözücüye gider; makinenin geri kalan
+   DNS'i (VPN, kurumsal ağ) hiç etkilenmez. Bu, `hosts` yaklaşımının joker ve
+   temizlik sorunlarını bir çırpıda çözer.
+3. Geri düşüş: NRPT yazılamazsa (politika kısıtı) `hosts` dosyasına DevBox'un
+   yönettiği işaretli blok yazılır — blok bütün olarak üretilir, elle düzenlenmez.
+
+Sonuç: `siparis.proje.test`, `admin.proje.test` gibi joker alt alan adları
+sıfır yapılandırmayla çalışır — Laragon'da mümkün değil.
+
+### 4.6 TLS — iç CA + otomatik sertifika + yerel ACME
+
+1. İlk açılışta **ECDSA P-256 kök CA** üretilir (10 yıl), özel anahtar
+   kullanıcının DPAPI ile korunan dizininde durur.
+2. Kök, üç yere kurulur:
+   - Windows güven deposu (`CurrentUser\Root`, gerekirse `LocalMachine\Root`)
+   - **Firefox NSS veritabanı** (`certutil` ile her profile) — Laragon'un
+     atladığı ve "Firefox'ta çalışmıyor" şikâyetlerinin tek sebebi
+   - İsteğe bağlı: Java `cacerts`, WSL2 `/usr/local/share/ca-certificates`
+3. Site sertifikaları: SAN'lı, kısa ömürlü (90 gün), `devboxd` arka planda
+   30 gün kala **sessizce yeniler**. Yerel olarak güvenilen kök, CT ve 398 gün
+   sınırından muaftır; yine de kısa ömür ilkesini koruyoruz.
+4. **Yerel ACME sunucusu** (`https://acme.devbox.test/acme/directory`): Caddy'nin
+   `acme_server` modülü. Böylece konteynerdeki Traefik, `certbot`, `lego` veya
+   ekibin kendi aracı sertifikayı standart yolla alır. Bu özellik hiçbir rakipte
+   hazır gelmiyor; asıl farklılaştırıcı burası.
+5. `devbox cert trust --wsl` / `--java` / `--firefox` gibi açık komutlar; ne
+   yapıldığı görünür olsun.
+
+### 4.7 Veritabanı örnekleri
+
+Tek bir "MySQL servisi" yerine **örnek (instance)** kavramı:
+
+```
+devbox db create pg17-main --engine postgres --version 17 --port 5433
+devbox db create my8-shop  --engine mysql    --version 8.4 --port 3307
+devbox db snapshot my8-shop --tag "migration-oncesi"
+devbox db restore  my8-shop --tag "migration-oncesi"
+```
+
+- Her örnek: kendi veri dizini, kendi portu (otomatik tahsis), kendi conf'u.
+- İlk kurulumda `initdb` / `mysqld --initialize-insecure` otomatik.
+- Sürüm yükseltme yolu: `pg_upgrade` ve `mysql_upgrade` sarmalayıcıları,
+  öncesinde otomatik anlık görüntü.
+- Yönetim arayüzleri DevBox'un kendi web arayüzünden açılır: Adminer (tek dosya),
+  pgAdmin ve phpMyAdmin isteğe bağlı bileşen olarak.
+- Anlık görüntü/geri alma, Laragon'da hiç yok; günlük hayatta en çok işe yarayan
+  özelliklerden biri olacak.
+
+### 4.8 Proje tanım dosyası — depoya giren ortam
+
+Projenin kökündeki `devbox.yaml`, `docker-compose.yml`'ın yerel karşılığı:
+
+```yaml
+name: magaza
+domain: magaza.test          # magaza.test + *.magaza.test
+server: nginx                # apache | nginx | caddy | proxy
+root: public
+php:
+  version: "8.3"
+  ini:
+    memory_limit: 512M
+    upload_max_filesize: 64M
+  extensions: [redis, intl, gd]
+  xdebug: off
+services:
+  - postgres@17
+  - redis@7
+  - mailpit
+  - minio
+env:
+  DB_HOST: 127.0.0.1
+  MAIL_HOST: 127.0.0.1
+processes:                   # Procfile benzeri
+  queue: php artisan queue:work
+  vite:  npm run dev
+cron:
+  - schedule: "* * * * *"
+    run: php artisan schedule:run
+```
+
+`devbox up` bu dosyayı okur, eksik runtime'ları indirir, alan adını ve
+sertifikayı ayarlar, servisleri ayağa kaldırır. Ekip arkadaşı depoyu klonlayıp
+`devbox up` der; ortam birebir aynı olur. **Laragon'un yapamadığı asıl şey bu.**
+
+Çerçeve algılama: `composer.json` / `package.json` / `manage.py` okunarak
+Laravel, Symfony, WordPress, Next.js, Django için `devbox.yaml` otomatik önerilir.
+
+---
+
+## 5. Windows'a özgü tuzaklar (baştan planlanmalı)
+
+Bunlar sonradan keşfedilirse takvimi haftalarca kaydırır:
+
+1. **Hyper-V dışlanan port aralıkları** — WSL2/Docker açıkken Windows
+   `netsh int ipv4 show excludedportrange protocol=tcp` ile geniş aralıkları
+   rezerve eder; 3306 veya 8080 birdenbire bağlanamaz hâle gelir. Port tahsis
+   edicisi bu listeyi **her açılışta okumalı**.
+2. **IIS / W3SVC** ve "World Wide Web Publishing Service" 80'i tutuyor olabilir;
+   kurulum sihirbazı tespit edip devre dışı bırakmayı önermeli.
+3. **Artık süreçler** — GUI/daemon çökerse `mysqld.exe`, `php-cgi.exe` ayakta
+   kalır. Çözüm: tüm alt süreçler `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` bayraklı
+   bir **İş Nesnesi** içinde doğar.
+4. **Windows Defender** — `node_modules`, veri dizinleri ve PHP dosya taraması
+   yığını 3–5 kat yavaşlatır. Kurulumda dışlama önerisi (kullanıcı onaylı,
+   sessizce değil) ve etkisini ölçen bir kıyas komutu.
+5. **Sembolik bağlar** yönetici olmadan yalnız Geliştirici Modu açıkken kurulur;
+   runtime sürüm değişimi için symlink yerine **shim `.exe`** kullanacağız
+   (Scoop yaklaşımı) — `bin\php.exe` çağrılan dizine bakıp aktif sürümü seçer.
+6. **PATH'i kirletmeme** — global PATH'e onlarca dizin eklemek yerine tek bir
+   `%LOCALAPPDATA%\DevBox\bin` shim dizini.
+7. **Uzun yol** desteği (`\\?\` ve `LongPathsEnabled`) — `node_modules` derinliği.
+8. **CRLF/BOM** — üretilen conf dosyaları LF ve BOM'suz olmalı; Apache BOM'lu
+   conf'ta anlaşılmaz hata verir.
+9. **Dosya kilitleri** — çalışan sürecin `.exe`'si silinemez; güncelleyici
+   "önce durdur, sonra değiştir, sonra başlat" sırasına uymalı, ayrıca
+   `MoveFileEx(..., DELAY_UNTIL_REBOOT)` geri düşüşü.
+10. **WSL2 birlikte çalışma** — dosyalar `\\wsl$` üzerinden erişilirse çok yavaş;
+    WSL sürücüsü kullanılıyorsa proje dosyaları Linux dosya sisteminde durmalı.
+    Yeni WSL'in `networkingMode=mirrored` ayarı localhost sorunlarını çözüyor;
+    sürüm tespiti yapılmalı.
+11. **SmartScreen** — imzasız kurulum "bilinmeyen yayıncı" uyarısı verir; itibar
+    birikimi haftalar sürer. Kod imzalama sertifikası **1. günde** alınmalı.
+12. **Antivirüs yanlış pozitifi** — süreç enjeksiyonu benzeri davranışlar
+    (Job Object, port dinleme) bazı AV'leri tetikler; VirusTotal ve satıcı
+    beyaz liste başvurusu sürece dahil.
+
+---
+
+## 6. Yol haritası
+
+Tahminler 2 kişilik bir ekip içindir. **MVP Faz 3 sonunda** (≈ 4. ay).
+
+### Faz 0 — Keşif ve mimari doğrulama · 3 hafta
+- Riskli parçalar için tek kullanımlık prototipler: FastCGI havuzu, NRPT kuralı,
+  helper IPC, Caddy'yi kütüphane olarak gömme.
+- Runtime kayıt defteri şeması ve `devbox.yaml` JSON Schema taslağı.
+- **Kabul:** dört prototip de Windows 10 ve 11'de çalışıyor; NRPT'nin kurumsal
+  politika altında yazılabilirliği doğrulandı.
+
+### Faz 1 — Çekirdek · 6 hafta
+- `devboxd`: süreç denetçisi (İş Nesnesi, sağlık denetimi, geri çekilmeli yeniden
+  başlatma, log toplama), REST + WebSocket API, durum makinesi.
+- `devbox-helper`: LocalSystem servisi, adlandırılmış boru, 6 ayrıcalıklı işlem,
+  girdi izin listesi.
+- Runtime kayıt defteri: imzalı manifest, devam ettirilebilir indirme, SHA256
+  doğrulama, sürümlü atomik kurulum, çöp toplama, shim üretimi.
+- `devbox` CLI iskeleti.
+- **Kabul:** `devbox runtime install php@8.3` bir dakikada biter, `devbox ps`
+  süreçleri gösterir, daemon öldürülünce alt süreçler de ölür.
+
+### Faz 2 — Web katmanı · 5 hafta
+- Gömülü Caddy kenarı, 80/443, host adına göre yönlendirme.
+- Apache ve Nginx sürücüleri: şablondan vhost üretimi, atomik yazım, zarif
+  yeniden yükleme, conf söz dizimi ön denetimi (`httpd -t`, `nginx -t`).
+- PHP FastCGI havuz yöneticisi, proje başına `php.ini` katmanı, Xdebug anahtarı.
+- Port tahsis edicisi (Hyper-V dışlama listesi ve IIS farkındalığı).
+- **Kabul:** Apache'de bir WordPress ile Nginx'te bir Laravel **aynı anda**,
+  farklı PHP sürümleriyle çalışıyor.
+
+### Faz 3 — Alan adı, TLS ve MVP · 5 hafta
+- Yerel DNS sunucusu + NRPT kuralı + `hosts` geri düşüşü.
+- İç CA, güven deposu kurulumu (Windows + Firefox NSS + WSL + Java).
+- Otomatik sertifika üretimi ve sessiz yenileme.
+- `devbox.yaml` okuyucu, çerçeve algılama, `devbox up` / `devbox down`.
+- **Kabul (MVP):** temiz bir Windows sanal makinesinde kurulum → `devbox up` →
+  `https://magaza.test` Chrome, Edge ve Firefox'ta **uyarısız** açılıyor.
+  → **v0.5 kapalı beta**
+
+### Faz 4 — Veritabanları · 5 hafta
+- MySQL 8.x, MariaDB 11.x, PostgreSQL 14–17 sürücüleri; çoklu örnek, otomatik
+  `initdb`, port tahsisi.
+- Anlık görüntü / geri yükleme, zamanlanmış yedek, sürüm yükseltme sarmalayıcıları.
+- Adminer gömülü; pgAdmin/phpMyAdmin isteğe bağlı bileşen.
+- **Kabul:** PG 16 ve PG 17 örnekleri aynı anda ayakta; anlık görüntü alıp geri
+  yükleme veri kaybı olmadan çalışıyor.
+
+### Faz 5 — Posta ve yan servisler · 3 hafta
+- **Mailpit** (SMTP yakalayıcı + web arayüzü + API; MailHog'un modern halefi),
+  `mail.devbox.test` altında, HTML/metin/ek önizleme, arama, WebSocket canlı akış.
+- İsteğe bağlı gerçek röle (bir projede gerçekten posta göndermek gerekirse,
+  açıkça izin verilen alan adlarına).
+- Redis (Memurai ya da WSL), MinIO, Meilisearch, RabbitMQ bileşenleri.
+- Kuyruk işçileri ve cron: `devbox.yaml`'daki `processes` ve `cron` blokları.
+- **Kabul:** Laravel'den atılan posta 200 ms içinde arayüzde; `devbox mail api`
+  ile son postanın gövdesi testten okunabiliyor.
+
+### Faz 6 — GUI ve geliştirici deneyimi · 6 hafta
+- Tauri masaüstü uygulaması: proje listesi, tek tık başlat/durdur, sürüm
+  değiştirici, canlı log görüntüleyici (filtre + arama), sağlık paneli.
+- Sistem tepsisi, oturum açılışında başlatma, kaynak kullanımı göstergeleri.
+- Proje şablonları (`devbox new laravel magaza`), içe/dışa aktarma.
+- VS Code eklentisi: durum çubuğu, hızlı komutlar, Xdebug tek tıkla.
+- **Kabul:** Beta kullanıcılarının %80'i GUI ile kurulumdan ilk `https://` sayfaya
+  10 dakikanın altında ulaşıyor (ölçülür).
+
+### Faz 7 — İleri yetenekler · 6 hafta
+- **Yerel ACME sunucusu** (`acme_server`) + `devbox cert` komutları.
+- **Konteyner sürücüsü:** `devbox.yaml`'daki bir servis `driver: docker` ile
+  konteynerde koşabilir; kenar proxy onu da yönlendirir. Yerel/konteyner karışık.
+- **HTTP denetleyicisi:** kenardan aynalanan istek/yanıt akışı, gövde ve başlık
+  incelemesi, tekrar gönderme (yerel Charles/Proxyman).
+- **Tünelleme:** Cloudflare Tunnel / ngrok entegrasyonu ile `devbox share magaza`.
+- Ekip paylaşımı: `devbox.yaml` + kilit dosyası ile birebir sürüm eşleme.
+- **Kabul:** WSL2'deki bir konteyner, DevBox'un yerel ACME'sinden sertifika alıp
+  `https://api.magaza.test` olarak yayınlanıyor.
+
+### Faz 8 — Sağlamlaştırma ve 1.0 · 5 hafta
+- Bağımsız **güvenlik denetimi** (odak: helper IPC ve LPE yüzeyi).
+- Kod imzalama, MSI/`winget` paketi, delta güncelleyici, çökme raporlama
+  (kullanıcı onaylı).
+- Belgeler, Laragon/XAMPP'tan **göç aracı** (var olan siteleri ve DB'leri içe
+  aktarır) — benimsemenin en kritik parçası.
+- Performans kıyasları: soğuk başlatma, ilk istek gecikmesi, RAM.
+- **Kabul:** denetimde yüksek/kritik bulgu yok; temiz kurulumdan çalışan siteye
+  5 dakika; → **v1.0**
+
+**Toplam: ≈ 44 hafta.** MVP 19. haftada.
+
+---
+
+## 7. Test ve CI stratejisi
+
+- **Birim:** yapılandırma şablonları (üretilen conf'un altın dosyalarla
+  karşılaştırılması), port tahsisi, sürüm çözümleme, manifest doğrulama.
+- **Bütünleşme:** GitHub Actions `windows-latest` üzerinde gerçek servisleri
+  ayağa kaldırıp HTTP/SQL isteği atan matris testleri
+  (PHP 7.4/8.1/8.3/8.4 × Apache/Nginx × MySQL/MariaDB/PostgreSQL).
+- **Kurulum testi:** her sürüm için temiz Windows Sandbox / VM anlık görüntüsünde
+  uçtan uca kurulum; "yükseltme" senaryosu için önceki sürümden geçiş.
+- **Sertifika testi:** üretilen sertifikanın gerçek Chrome ve Firefox ile
+  headless doğrulanması (uyarı yok kontrolü) — regresyonun en sinsi olduğu yer.
+- **Kaos:** daemon `taskkill /f` ile öldürülür; artık süreç kalmamalı, yeniden
+  başlatmada durum tutarlı olmalı.
+
+---
+
+## 8. Lisans ve hukuki notlar
+
+Bileşenleri **kurulum sırasında indirmek**, kuruluma gömmekten hukuken çok daha
+rahat; özellikle MySQL için (Oracle, GPL) bu tercih edilmeli.
+
+| Bileşen | Lisans | Not |
+|---|---|---|
+| Apache httpd | Apache-2.0 | Serbest; Windows derlemeleri için Apache Lounge |
+| Nginx | 2-clause BSD | Serbest |
+| Caddy | Apache-2.0 | Gömülebilir |
+| PHP | PHP License | Serbest, adlandırma kısıtına dikkat |
+| MySQL | GPL-2.0 (istisnalı) | **İndirerek kur**, paketleme yapma |
+| MariaDB | GPL-2.0 | Aynı yaklaşım |
+| PostgreSQL | PostgreSQL Lisansı | En rahatı, gömülebilir |
+| Mailpit | MIT | Gömülebilir |
+| Adminer | Apache-2.0 / GPL-2.0 | Serbest |
+
+DevBox'un kendisi için öneri: çekirdek **Apache-2.0** (patent maddesi güven verir),
+ticarileşme istenirse ekip/uzak özellikleri ayrı katmanda.
+
+---
+
+## 9. Risk kaydı
+
+| Risk | Etki | Önlem |
+|---|---|---|
+| NRPT kurumsal politikayla engellenir | Alan adları çalışmaz | `hosts` geri düşüşü Faz 3'te birlikte yazılır, sonradan değil |
+| FastCGI havuzu kararsız olur | PHP projeleri güvenilmez | Faz 0'da prototip; yük altında 24 saat dayanma testi |
+| Helper'da ayrıcalık yükseltme açığı | Kritik güvenlik | Genel amaçlı uç nokta yok; izin listesi; bağımsız denetim |
+| SmartScreen/AV yanlış pozitifi | Kurulum terk edilir | Kod imzalama 1. günde; VirusTotal takibi; satıcı başvuruları |
+| Laravel Herd hızla eşitler | Farklılaşma erir | Farkı çoklu-DB, çoklu-sunucu, ACME ve açık mimaride tut |
+| Runtime derlemelerinin kaynağı kesilir | Kurulum bozulur | Manifest'te ayna URL'leri; yerel önbellek; SHA256 sabitleme |
+| Kapsam şişmesi | 1.0 gecikir | Faz 3 MVP'si sabit; Faz 7 maddeleri gerekirse 1.1'e |
+
+---
+
+## 10. İlk iki hafta — somut başlangıç
+
+1. Depoyu kur: `cmd/devboxd`, `cmd/devbox`, `internal/supervisor`,
+   `internal/runtime`, `internal/certs`, `internal/dns`, `internal/webserver`.
+2. **Prototip A:** 4 işçilik `php-cgi.exe` FastCGI havuzu + bir istek dağıtıcı;
+   1000 eşzamanlı istek altında sızıntı ve çökme ölçümü.
+3. **Prototip B:** `Add-DnsClientNrptRule` ile `.test` yönlendirmesi; VPN açıkken
+   ve kurumsal makinede davranış.
+4. **Prototip C:** Go ile iç CA üret, `CurrentUser\Root`'a ve Firefox NSS'e kur,
+   üretilen sertifikayla Chrome + Firefox'ta uyarısız `https://` doğrula.
+5. **Prototip D:** Caddy'yi kütüphane olarak `devboxd`e göm, 443'ü dinlet,
+   `127.0.0.1:8080`'e yönlendir.
+6. Kod imzalama sertifikası başvurusunu başlat (teslim süresi haftaları bulur).
+
+---
+
+## 11. Karar bekleyen konular
+
+1. **Ad ve TLD:** ürün adı ve varsayılan TLD (`.test` öneriliyor; `.devbox` gibi
+   özel bir TLD sadece NRPT ile mümkün, ama standart dışı).
+2. **Lisans modeli:** tamamen açık kaynak mı, çekirdek açık + ekip özellikleri
+   ticari mi?
+3. **Konteyner sürücüsü Faz 7'de mi, yoksa hiç mi?** Yerel hız ana vaadimizse
+   opsiyonel kalmalı.
+4. **Hedeflenen en eski Windows:** yalnız Windows 11 mi, Windows 10 22H2 de mi?
+   (WSL `mirrored` ağ ve WebView2 varsayımları buna bağlı.)
+5. **GUI çerçevesi:** Tauri 2 öneriliyor; ekipte Rust deneyimi yoksa .NET 8 +
+   WinUI 3 alternatifi değerlendirilmeli.
