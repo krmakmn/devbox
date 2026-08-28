@@ -3,8 +3,40 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: planlama.** Henüz kod yok. Bu depo şimdilik mimariyi ve yol haritasını
-> taşıyor. Başlangıç noktası: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
+> **Durum: Faz 0 — mimari doğrulama.** Yol haritasının en riskli parçası olan
+> PHP FastCGI süreç havuzu çalışıyor ve testleri var. Kenar proxy, alan adı,
+> TLS ve veritabanı katmanları henüz yok.
+> Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
+
+## Şu an ne çalışıyor
+
+Bir dizini php-cgi süreç havuzu üzerinden HTTP'de sunabiliyorsunuz:
+
+```bash
+devbox serve --root ./public --php C:\php\php-cgi.exe --addr 127.0.0.1:8080
+```
+
+Bunun arkasında duran parçalar:
+
+| Paket | İş |
+|---|---|
+| `internal/fastcgi` | FastCGI 1.0 istemcisi — kayıt çerçeveleme, akışlı gövde, STDERR yakalama |
+| `internal/phppool` | php-cgi süreç havuzu — dağıtım, sağlık denetimi, yenileme, üstel geri çekilmeyle yeniden başlatma |
+| `internal/web` | HTTP → FastCGI köprüsü, CGI değişkenleri ve güvenlik denetimleri |
+| `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
+
+Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
+kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
+gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Halihazırda kapatılmış üç bilinen tuzak:
+
+- **`cgi.fix_pathinfo` ile uzaktan kod çalıştırma** — diskte gerçekten var olan
+  düzenli bir `.php` dosyası dışında hiçbir şey `SCRIPT_FILENAME` olmuyor,
+  yani `/yuklemeler/kedi.jpg/x.php` numarası çalışmıyor.
+- **httpoxy (CVE-2016-5385)** — gelen `Proxy` başlığı `HTTP_PROXY`'ye çevrilmiyor.
+- **Sır sızıntısı** — `.env`, `.git`, `.htaccess` gibi nokta ile başlayan yollar
+  403; ACME doğrulaması için `.well-known` ayrık tutuluyor.
 
 ## Ne yapacak
 
@@ -57,6 +89,25 @@ Gerekçeleri ve alternatifleri yol haritasının 4. bölümünde.
 | 8 | Güvenlik denetimi, imzalama, göç aracı → **v1.0** | 5 hafta |
 
 Ayrıntı, kabul kriterleri ve risk kaydı: [docs/yol-haritasi.md](docs/yol-haritasi.md)
+
+## Geliştirme
+
+Go 1.23+ yeterli; dış bağımlılık yok.
+
+```bash
+go test ./... -race     # testler (gerçek süreç başlatan bütünleşme testleri dahil)
+go vet ./...
+GOOS=windows go build ./...
+```
+
+Testler gerçek bir PHP kurulumu istemez: test ikilisi kendini sahte bir php-cgi
+olarak yeniden çalıştırır ve FastCGI'yi standart kütüphanenin sunucu tarafı
+konuşur. Yani tel üzerindeki protokol ve süreç yönetimi gerçek, taklit edilen
+tek şey PHP yorumlayıcısı.
+
+## Lisans
+
+Apache-2.0. Ayrıntı: [LICENSE](LICENSE).
 
 ## Karar bekleyenler
 
