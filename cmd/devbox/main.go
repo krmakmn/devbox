@@ -289,7 +289,15 @@ func runTrust(args []string) error {
 		return nil
 
 	case "install":
-		results, err := trust.Install(rootPath)
+		// Windows kök sertifika eklerken onay penceresi gösterir. Kullanıcı
+		// bunu beklemezse pencereyi kaçırır ve komut asılı kalmış sanır.
+		if runtime.GOOS == "windows" {
+			fmt.Println("Windows bir onay penceresi gösterecek; kök sertifikayı eklemek için onaylayın.")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		results, err := trust.Install(ctx, rootPath)
 		if err != nil {
 			return err
 		}

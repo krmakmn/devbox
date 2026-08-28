@@ -9,9 +9,24 @@
 // Kurulum en iyi çabadır: bir hedef başarısız olursa diğerleri denenir ve her
 // biri için ne yapılması gerektiğini söyleyen bir sonuç döner. Sessizce
 // yarım kalmak, kullanıcının saatlerce yanlış yerde hata aramasına yol açar.
+//
+// # Windows onay penceresi
+//
+// Kullanıcının kök deposuna bir CA eklemek Windows'ta **etkileşimli bir onay
+// penceresi** açar ("Bir sertifika yetkilisinden sertifika yüklemek
+// üzeresiniz..."). Bu bir engel değil, kasıtlı bir koruma: kök sertifika
+// eklemek makinedeki tüm TLS trafiğini etkiler ve kullanıcının haberi
+// olmadan yapılmamalıdır.
+//
+// Pratik sonucu şu: masaüstü oturumu olmayan bir ortamda (servis, CI,
+// uzaktan oturum) çağrı **süresiz bloke olur** — pencere gösterilemez ama
+// çağrı yanıt bekler. Bu yüzden kurulum bağlam alıyor; süre dolduğunda ne
+// olduğunu açıkça söyleyen bir hata dönüyor. Aynı sebeple bu yol otomatik
+// olarak test edilemiyor.
 package trust
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -50,14 +65,14 @@ func (r Result) String() string {
 // Install, PEM dosyasındaki kök sertifikayı bulunabilen tüm güven depolarına
 // kurar. Hiçbiri başarılı olmasa bile sonuç listesi döner; çağıran hangi
 // hedefin neden başarısız olduğunu görebilsin.
-func Install(rootPEMPath string) ([]Result, error) {
+func Install(ctx context.Context, rootPEMPath string) ([]Result, error) {
 	cert, err := loadCert(rootPEMPath)
 	if err != nil {
 		return nil, err
 	}
 
-	results := []Result{installSystem(cert)}
-	results = append(results, installFirefox(rootPEMPath, cert)...)
+	results := []Result{installSystem(ctx, cert)}
+	results = append(results, installFirefox(ctx, rootPEMPath, cert)...)
 	return results, nil
 }
 

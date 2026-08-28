@@ -3,6 +3,7 @@
 package trust
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"runtime"
@@ -12,7 +13,7 @@ import (
 // dokunmuyoruz: dağıtımlar arasında yol ve araç farkı büyük, yanlış yere
 // yazmak sistemin güven zincirini bozabilir. Geliştirme ve CI için kök,
 // testlerde doğrudan havuza eklenerek kullanılıyor.
-func installSystem(cert *x509.Certificate) Result {
+func installSystem(_ context.Context, cert *x509.Certificate) Result {
 	return Result{
 		Target: "işletim sistemi güven deposu (" + runtime.GOOS + ")",
 		Err:    errors.New("bu platformda desteklenmiyor"),

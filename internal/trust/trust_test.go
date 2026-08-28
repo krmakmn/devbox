@@ -1,11 +1,13 @@
 package trust
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/krmakmn/devbox/internal/certs"
 )
@@ -116,7 +118,15 @@ func TestIsWindowsCertutil(t *testing.T) {
 func TestInstallReportsEveryTarget(t *testing.T) {
 	rootPEM := newRoot(t)
 
-	results, err := Install(rootPEM)
+	// Kısa bağlam kasıtlı. Windows kök sertifika eklerken onay penceresi
+	// açıyor ve masaüstü oturumu olmayan bir ortamda (CI, servis) çağrı
+	// süresiz bloke oluyor — bu test tam olarak öyle asılıp 10 dakikalık
+	// test zaman aşımıyla düşmüştü. Süre sınırıyla, kurulumun her hedef
+	// için anlamlı bir sonuç ve ipucu döndürdüğünü asılmadan sınıyoruz.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	results, err := Install(ctx, rootPEM)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -140,12 +150,16 @@ func TestInstallReportsEveryTarget(t *testing.T) {
 // çalışmasını istemiyoruz; CI'da Windows işinde açık.
 func TestSystemStoreRoundTrip(t *testing.T) {
 	if os.Getenv("DEVBOX_TEST_TRUST_STORE") != "1" {
-		t.Skip("DEVBOX_TEST_TRUST_STORE=1 değil; gerçek güven deposuna dokunulmuyor")
+		t.Skip("DEVBOX_TEST_TRUST_STORE=1 değil; gerçek güven deposuna dokunulmuyor " +
+			"(bu test onay penceresini yanıtlayacak bir insan gerektirir)")
 	}
 	if runtime.GOOS != "windows" {
 		t.Skip("işletim sistemi güven deposu yalnız Windows'ta destekleniyor")
 	}
 
+	// Bu test etkileşimli bir masaüstü oturumu gerektirir: Windows kök
+	// sertifika eklerken onay penceresi gösterir ve birinin onaylaması
+	// gerekir. Otomatikleştirilemez, CI'da koşamaz.
 	rootPEM := newRoot(t)
 	t.Cleanup(func() { Uninstall(rootPEM) })
 
@@ -159,7 +173,9 @@ func TestSystemStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res := installSystem(cert); !res.Installed {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if res := installSystem(ctx, cert); !res.Installed {
 		t.Fatalf("kurulum başarısız: %v", res.Err)
 	}
 

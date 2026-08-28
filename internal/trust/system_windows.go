@@ -4,7 +4,9 @@ package trust
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -37,35 +39,57 @@ func openRootStore() (syscall.Handle, error) {
 	return store, nil
 }
 
-func installSystem(cert *x509.Certificate) Result {
+// installSystem, kökü kullanıcının ROOT deposuna ekler.
+//
+// Windows bu sırada onay penceresi gösterir ve çağrı yanıtlanana kadar
+// döner değil. Masaüstü oturumu yoksa pencere hiç gösterilemez ve çağrı
+// süresiz bloke olur; bu yüzden ekleme ayrı bir goroutine'de yapılıp
+// bağlamla sınırlanıyor. Goroutine kendi hâline bırakılıyor: syscall'ı
+// iptal etmenin yolu yok, ama süreç sonlandığında o da gider.
+func installSystem(ctx context.Context, cert *x509.Certificate) Result {
 	res := Result{Target: "Windows güven deposu (Chrome, Edge)"}
 
+	done := make(chan error, 1)
+	go func() { done <- addToRootStore(cert) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			res.Err = err
+			res.Hint = "certutil -addstore -user Root <kök.crt> ile elle kurabilirsiniz"
+			return res
+		}
+		res.Installed = true
+		return res
+	case <-ctx.Done():
+		res.Err = errors.New("Windows onay penceresi yanıtlanmadı")
+		res.Hint = "Kök sertifika eklerken Windows onay ister. Açılan pencereyi onaylayın; " +
+			"masaüstü oturumu yoksa (servis, CI, uzak oturum) bu yol kullanılamaz — " +
+			"certutil -addstore -user Root <kök.crt> deneyin"
+		return res
+	}
+}
+
+func addToRootStore(cert *x509.Certificate) error {
 	store, err := openRootStore()
 	if err != nil {
-		res.Err = err
-		res.Hint = "certutil -addstore -user Root <kök.crt> ile elle kurabilirsiniz"
-		return res
+		return err
 	}
 	defer syscall.CertCloseStore(store, 0)
 
-	ctx, err := syscall.CertCreateCertificateContext(
+	certCtx, err := syscall.CertCreateCertificateContext(
 		syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING,
 		&cert.Raw[0], uint32(len(cert.Raw)),
 	)
 	if err != nil {
-		res.Err = fmt.Errorf("trust: sertifika bağlamı oluşturulamadı: %w", err)
-		return res
+		return fmt.Errorf("trust: sertifika bağlamı oluşturulamadı: %w", err)
 	}
-	defer syscall.CertFreeCertificateContext(ctx)
+	defer syscall.CertFreeCertificateContext(certCtx)
 
-	if err := syscall.CertAddCertificateContextToStore(store, ctx, certStoreAddReplaceExisting, nil); err != nil {
-		res.Err = fmt.Errorf("trust: sertifika depoya eklenemedi: %w", err)
-		res.Hint = "certutil -addstore -user Root <kök.crt> ile elle kurabilirsiniz"
-		return res
+	if err := syscall.CertAddCertificateContextToStore(store, certCtx, certStoreAddReplaceExisting, nil); err != nil {
+		return fmt.Errorf("trust: sertifika depoya eklenemedi: %w", err)
 	}
-
-	res.Installed = true
-	return res
+	return nil
 }
 
 func systemContains(cert *x509.Certificate) (bool, error) {

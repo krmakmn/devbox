@@ -1,6 +1,7 @@
 package trust
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -19,7 +20,7 @@ const nickname = "DevBox yerel geliştirme CA"
 // Firefox, işletim sisteminin güven deposunu kullanmaz; her profilin kendi
 // NSS veritabanı (cert9.db) vardır. Bu veritabanına yazmanın desteklenen tek
 // yolu NSS'in certutil aracıdır ve Firefox onu birlikte getirmez.
-func installFirefox(rootPEMPath string, cert *x509.Certificate) []Result {
+func installFirefox(ctx context.Context, rootPEMPath string, cert *x509.Certificate) []Result {
 	profiles := firefoxProfiles(firefoxProfileRoots())
 	if len(profiles) == 0 {
 		// Firefox kurulu değilse bu bir hata değil.
@@ -37,7 +38,7 @@ func installFirefox(rootPEMPath string, cert *x509.Certificate) []Result {
 			continue
 		}
 
-		cmd := exec.Command(tool, certutilArgs(profile, rootPEMPath)...)
+		cmd := exec.CommandContext(ctx, tool, certutilArgs(profile, rootPEMPath)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			res.Err = fmt.Errorf("certutil başarısız: %w: %s", err, strings.TrimSpace(string(out)))
 			res.Hint = certutilHint()

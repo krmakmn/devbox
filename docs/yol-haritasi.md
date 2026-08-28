@@ -18,6 +18,7 @@
 | Kenar proxy için Caddy kütüphane olarak gömülür | **Kenarın ihtiyacı olan her şey standart kütüphanede var** | `httputil.ReverseProxy` ile host tabanlı yönlendirme, TLS sonlandırma ve WebSocket yükseltmesi çalışıyor. Caddy'nin asıl değeri `acme_server`; bağımlılık **Faz 7'ye ertelendi** ve depo bağımlılıksız kaldı |
 | php-cgi havuzu en riskli parça | Doğrulandı, çalışıyor | Kendi FastCGI istemcimiz ve süreç havuzumuz yazıldı; en ince nokta işçi tahsisindeki yarış oldu (bkz. 4.4) |
 | Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
+| Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
 
 ---
 
@@ -141,7 +142,9 @@ Laragon'un tamamı yönetici olarak çalışır. DevBox'da:
   girdisi **izin listesiyle** doğrulanır:
   1. 80/443 dinleme yetkisi (`http.sys` URL ACL / port ayırma)
   2. `hosts` dosyası ve **NRPT** kuralı yazma
-  3. Kök sertifikayı `LocalMachine\Root`'a kurma/kaldırma
+  3. ~~Kök sertifikayı `LocalMachine\Root`'a kurma/kaldırma~~ — **çıkarıldı.**
+     Windows onay penceresi gösterdiği için servisten yapılamaz; kullanıcının
+     oturumunda `devbox trust install` ile yapılıyor (bkz. bölüm 0)
   4. Güvenlik duvarı kuralı ekleme
   5. Servis kaydı (yalnız DevBox'a ait servis adları)
   6. Hyper-V dışlanan port aralığı sorgusu
@@ -211,11 +214,19 @@ sıfır yapılandırmayla çalışır — Laragon'da mümkün değil.
 
 1. İlk açılışta **ECDSA P-256 kök CA** üretilir (10 yıl), özel anahtar
    kullanıcının DPAPI ile korunan dizininde durur.
-2. Kök, üç yere kurulur:
+2. Kök, üç yere kurulur — **Windows bu sırada onay penceresi gösterir**:
    - Windows güven deposu (`CurrentUser\Root`, gerekirse `LocalMachine\Root`)
    - **Firefox NSS veritabanı** (`certutil` ile her profile) — Laragon'un
      atladığı ve "Firefox'ta çalışmıyor" şikâyetlerinin tek sebebi
    - İsteğe bağlı: Java `cacerts`, WSL2 `/usr/local/share/ca-certificates`
+
+   Onay penceresi bir engel değil, kasıtlı bir koruma: kök sertifika eklemek
+   makinedeki tüm TLS trafiğini etkiler ve kullanıcının haberi olmadan
+   yapılmamalıdır. Mimari sonucu şu: **bu iş ayrıcalıklı yardımcı servise
+   verilemez.** Servis, masaüstü oturumuna pencere gösteremez; çağrı
+   süresiz bloke olur. Kök kurulumu kullanıcının kendi oturumunda, açık bir
+   komutla (`devbox trust install`) yapılmalı — ve bu, ayrıcalıklı işlem
+   listesindeki tek "kullanıcı onayı zorunlu" madde.
 3. Site sertifikaları: SAN'lı, kısa ömürlü (90 gün), `devboxd` arka planda
    30 gün kala **sessizce yeniler**. Yerel olarak güvenilen kök, CT ve 398 gün
    sınırından muaftır; yine de kısa ömür ilkesini koruyoruz.

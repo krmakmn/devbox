@@ -41,11 +41,12 @@ jobs:
         run: go vet ./...
 
       - name: Testler (yarış dedektörüyle)
-        # Güven deposuna gerçekten yazan test yalnız burada açık: CI makinesi
-        # kullan-at, geliştirici makinesi değil. Test kendi kökünü kurup
-        # kaldırıyor.
-        env:
-          DEVBOX_TEST_TRUST_STORE: "1"
+        # DEVBOX_TEST_TRUST_STORE burada bilerek AÇIK DEĞİL. Windows kök
+        # sertifika eklerken onay penceresi gösteriyor; CI'da masaüstü
+        # oturumu olmadığı için pencere gösterilemiyor ama çağrı yanıt
+        # bekliyor ve iş 10 dakikalık test zaman aşımına kadar asılı
+        # kalıyor. Bu yolu doğrulamak için gerçek bir Windows oturumunda
+        # elle koşmak gerekiyor.
         run: go test ./... -race -count=1
 
   cross-build:
