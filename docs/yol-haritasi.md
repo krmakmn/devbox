@@ -20,6 +20,7 @@
 | API için WebSocket | **Günlük akışı tek yönlü** | SSE yetiyor ve standart kütüphaneyle yazılıyor; WebSocket bağımlılığı ertelendi. Çift yönlü kanal gerektiğinde (etkileşimli konsol) konu yeniden açılır |
 | Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
 | Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
+| Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
 
@@ -99,14 +100,12 @@ betiklenebilen Windows geliştirme yığını."*
                  │ sertifika yöneticisi │  iç CA + ACME sunucusu
                  │ proje modeli         │  devbox.yaml
                  └───┬──────────────┬───┘
-                     │              │ adlandırılmış boru (SDDL ACL'li)
+                     │              │ yalnız işlem sırasında, kısa ömürlü
                      │   ┌──────────▼───────────┐
-                     │   │ devbox-helper        │ LocalSystem servisi
-                     │   │ (yalnız 6 ayrıcalıklı│  • 80/443 bağla
-                     │   │  işlem, izin listeli)│  • NRPT / hosts yaz
-                     │   └──────────────────────┘  • sertifika deposu
-                     │                             • güvenlik duvarı kuralı
-                     │                             • servis kaydı
+                     │   │ devbox privileged    │ talep üzerine UAC
+                     │   │ (tipli işlemler,     │  • NRPT / hosts yaz
+                     │   │  girdi izin listeli) │  • güvenlik duvarı kuralı
+                     │   └──────────────────────┘  • servis kaydı
    ┌─────────────────┼─────────────────────────────────────────────┐
    │      Kenar (edge): stdlib ters vekil — 80/443, TLS sonlandırma │
    └───┬─────────┬─────────┬──────────┬──────────┬─────────────────┘
@@ -135,25 +134,43 @@ betiklenebilen Windows geliştirme yığını."*
 **Karar:** GUI asla iş mantığı içermez. Her özellik önce API'de doğar, CLI ve GUI
 onu tüketir. Bu, Laragon'dan en büyük yapısal ayrışma.
 
-### 4.2 Yetki ayrımı (güvenliğin kalbi)
+### 4.2 Yetki ayrımı — talep üzerine yükseltme
 
-Laragon'un tamamı yönetici olarak çalışır. DevBox'da:
+Laragon'un tamamı yönetici olarak çalışır. İlk tasarım bunun yerine
+LocalSystem olarak koşan kalıcı bir yardımcı servis ve adlandırılmış boru
+üzerinden IPC öngörüyordu. **Faz 1'de ayrıcalıklı işlem listesi tek tek
+gözden geçirilince o tasarımın gerekçesi kalmadı:**
 
-- `devboxd` **normal kullanıcı** hakkıyla çalışır.
-- `devbox-helper` LocalSystem servisi yalnızca şu işlemleri yapar ve her birinin
-  girdisi **izin listesiyle** doğrulanır:
-  1. 80/443 dinleme yetkisi (`http.sys` URL ACL / port ayırma)
-  2. `hosts` dosyası ve **NRPT** kuralı yazma
-  3. ~~Kök sertifikayı `LocalMachine\Root`'a kurma/kaldırma~~ — **çıkarıldı.**
-     Windows onay penceresi gösterdiği için servisten yapılamaz; kullanıcının
-     oturumunda `devbox trust install` ile yapılıyor (bkz. bölüm 0)
-  4. Güvenlik duvarı kuralı ekleme
-  5. Servis kaydı (yalnız DevBox'a ait servis adları)
-  6. Hyper-V dışlanan port aralığı sorgusu
-- IPC: adlandırılmış boru, SDDL ile **yalnız kuran kullanıcıya** açık.
-- Helper hiçbir zaman "şu komutu çalıştır" tarzı genel bir uç nokta sunmaz —
-  aksi hâlde yerel ayrıcalık yükseltme (LPE) açığı üretmiş oluruz. Bu, faz
-  planındaki güvenlik denetiminin ana maddesi.
+| Öngörülen ayrıcalıklı işlem | Gerçek |
+|---|---|
+| 80/443 bağlama | Windows'ta 1024 altı portlar ayrıcalıklı değil — ayrıcalıklı işlem değilmiş |
+| Kök sertifikayı güven deposuna kurma | Windows onay penceresi gösteriyor; servis masaüstüne pencere gösteremez. Servisten **yapılamaz** |
+| Hyper-V dışlanan port aralığı sorgusu | Sorgu ayrıcalık istemiyor |
+| NRPT / hosts yazma | Yönetici gerekiyor — ama yılda birkaç kez |
+| Güvenlik duvarı kuralı | Yönetici gerekiyor — ama kurulumda bir kez |
+| Servis kaydı | Yönetici gerekiyor — ama kurulumda bir kez |
+
+Geriye kalan üç işlem de seyrek ve tek seferlik. Onlar için kalıcı bir
+ayrıcalıklı dinleyici çalıştırmak, projenin en büyük güvenlik yüzeyini —
+yerel ayrıcalık yükseltme (LPE) — yılda birkaç dakika kullanılacak bir
+yetenek uğruna sürekli açık tutmak demekti.
+
+**Yeni tasarım:** DevBox kendini yalnız o işlem için, tipi ve içeriği
+doğrulanmış argümanlarla yeniden başlatıyor (`devbox privileged <işlem>`).
+Sürekli dinleyen bir ayrıcalıklı süreç yok, dolayısıyla saldırılacak IPC
+yüzeyi de yok. Bedeli işlem başına bir UAC penceresi; seyrek işlemler için
+makul.
+
+Korunan ilkeler:
+
+- `devboxd` normal kullanıcı hakkıyla çalışır.
+- Ayrıcalıklı yürütücüde **"şu komutu çalıştır" tarzı genel bir işlem yok**;
+  her işlem tipli ve girdisi izin listeli. Böyle bir uç nokta, yükseltilmiş
+  bir süreçte keyfi kod çalıştırma demektir.
+- Girdiler yükseltilmiş tarafta **yeniden** doğrulanır: çağıran kim olursa
+  olsun. Windows'ta süreçlere argüman dizisi değil tek bir dize geçtiği için
+  komut satırı üretimi de kaçış kurallarına göre yapılır ve testlidir —
+  tırnak kaçıran bir değer, yükseltilmiş süreçte komut enjeksiyonu olurdu.
 
 ### 4.3 Kenar proxy modeli — aynı anda birden fazla web sunucusu
 

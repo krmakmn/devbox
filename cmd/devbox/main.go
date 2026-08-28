@@ -68,6 +68,8 @@ func run(args []string) error {
 		return runPS(args[1:])
 	case "logs":
 		return runLogs(args[1:])
+	case "privileged":
+		return runPrivileged(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -477,15 +479,20 @@ func runDNS(args []string) error {
 			return installHosts(splitList(*names))
 		}
 		host, _ := splitPort(*addr)
-		rule := nrpt.Rule{
-			Namespace: "." + suffixes[0],
-			Servers:   []string{host},
-			Comment:   nrpt.DefaultComment,
+		namespace := "." + suffixes[0]
+		rule := nrpt.Rule{Namespace: namespace, Servers: []string{host}, Comment: nrpt.DefaultComment}
+		if err := rule.Validate(); err != nil {
+			return err
 		}
-		if err := nrpt.Add(rule); err != nil {
-			return fmt.Errorf("%w\n\nYönetici olarak çalıştırın ya da geri düşüş için: devbox dns install -hosts -names <adlar>", err)
+
+		err := elevateFor(
+			[]string{"dns-install", "-namespace", namespace, "-server", host},
+			func() error { return nrpt.Add(rule) },
+		)
+		if err != nil {
+			return fmt.Errorf("%w\n\nGeri düşüş: devbox dns install -hosts -names <adlar>", err)
 		}
-		fmt.Printf("NRPT kuralı eklendi: %s → %s\n", rule.Namespace, host)
+		fmt.Printf("NRPT kuralı eklendi: %s → %s\n", namespace, host)
 		fmt.Println("Çözücüyü çalıştırmayı unutmayın: devbox dns serve")
 		return nil
 
@@ -497,7 +504,12 @@ func runDNS(args []string) error {
 			fmt.Println("hosts dosyasındaki DevBox bloğu kaldırıldı")
 			return nil
 		}
-		if err := nrpt.Remove("." + suffixes[0]); err != nil {
+		namespace := "." + suffixes[0]
+		err := elevateFor(
+			[]string{"dns-uninstall", "-namespace", namespace},
+			func() error { return nrpt.Remove(namespace) },
+		)
+		if err != nil {
 			return err
 		}
 		fmt.Println("NRPT kuralı kaldırıldı")

@@ -3,10 +3,13 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 1 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
-> `*.test` çözücüsü, kenar proxy) tamamlandı. Faz 1'de runtime kayıt defteri,
-> süreç denetçisi ve çekirdek servisin API'si hazır; ayrıcalıklı yardımcı
-> sırada.
+> **Durum: Faz 1 tamamlandı.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
+> defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
+> hazır. Sırada Faz 2 (Apache/Nginx sürücüleri) var.
+>
+> Not: NRPT, Firefox NSS ve Windows onay penceresi yolları CI'nin
+> kapsayamadığı yerler — gerçek bir Windows makinesinde elle denenmedi.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -29,6 +32,7 @@ Bunun arkasında duran parçalar:
 | `internal/runtime` | Runtime kayıt defteri: imzalı manifest, sürdürülebilir indirme, SHA256, sürümlü atomik kurulum |
 | `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
 | `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
+| `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -38,6 +42,16 @@ Bunun arkasında duran parçalar:
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Ayrıcalık tarafında: ilk tasarım LocalSystem olarak koşan kalıcı bir yardımcı
+servis öngörüyordu. Ayrıcalıklı işlem listesi tek tek incelenince gerekçesi
+kalmadı — altı işlemden üçü ya ayrıcalık gerektirmiyordu (Windows'ta 1024 altı
+portlar ayrıcalıklı değil) ya da servisten yapılamıyordu (kök sertifika onay
+penceresi). Kalan üçü yılda birkaç kez çalışan tek seferlik işler. Onlar için
+kalıcı bir ayrıcalıklı dinleyici tutmak, projenin en büyük güvenlik yüzeyini
+sürekli açık tutmak demekti. Yerine **talep üzerine yükseltme**: DevBox kendini
+yalnız o işlem için, tipi ve içeriği doğrulanmış argümanlarla yeniden başlatıyor.
+Saldırılacak IPC yüzeyi yok. "Şu komutu çalıştır" tarzı genel bir işlem de yok.
 
 API tarafında: GUI'nin yapabildiği her şey CLI'dan da yapılabilsin diye iş
 mantığı API'de değil, altta duran paketlerde; `devbox ps` ve `devbox logs`
@@ -123,7 +137,7 @@ Halihazırda kapatılmış üç bilinen tuzak:
 | Katman | Seçim |
 |---|---|
 | Çekirdek servis (`devboxd`) | Go — tek statik `.exe`, yerel Windows servisi |
-| Ayrıcalıklı yardımcı (`devbox-helper`) | LocalSystem, yalnız 6 izin listeli işlem |
+| Ayrıcalıklı işlemler | Talep üzerine UAC yükseltmesi, tipli ve izin listeli (kalıcı servis yok) |
 | Kenar proxy | Caddy, kütüphane olarak `devboxd` içine gömülü |
 | GUI | Tauri 2 (~10 MB, WebView2) |
 | CLI | Aynı Go ikilisi, API üzerinden |
