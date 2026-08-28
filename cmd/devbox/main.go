@@ -60,6 +60,8 @@ func run(args []string) error {
 		return runDNS(args[1:])
 	case "edge":
 		return runEdge(args[1:])
+	case "runtime":
+		return runRuntime(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -80,6 +82,7 @@ Kullanım:
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
   devbox edge [seçenekler]    80/443'ü dinle, host adına göre dağıt
+  devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
   devbox version              sürümü yazdır
   devbox help                 bu yardımı göster
 
@@ -100,6 +103,7 @@ func runServe(args []string) error {
 		addr        = fs.String("addr", "127.0.0.1:8080", "dinlenecek adres")
 		workers     = fs.Int("workers", 0, "php-cgi süreç sayısı (0 = CPU sayısı)")
 		maxRequests = fs.Int("max-requests", 500, "bir süreç kaç istekten sonra yenilenir (0 = sınırsız)")
+		phpVersion  = fs.String("php-version", "", "kullanılacak PHP sürümü (ör. 8.3); DevBox'ın kurduğu runtime'lardan seçilir")
 		iniDir      = fs.String("ini", "", "projeye özel php.ini dizini (php-cgi -c)")
 		serverName  = fs.String("server-name", "", "SERVER_NAME değeri (boşsa istekteki Host)")
 		front       = fs.String("front-controller", "index.php", "ön denetleyici betiği")
@@ -126,7 +130,7 @@ func runServe(args []string) error {
 		return fmt.Errorf("belge kökü bir dizin değil: %s", absRoot)
 	}
 
-	exe, err := findPHPCGI(*phpPath)
+	exe, err := findPHPCGI(*phpPath, *phpVersion)
 	if err != nil {
 		return err
 	}
@@ -586,9 +590,12 @@ func splitList(s string) []string {
 	return out
 }
 
-// findPHPCGI, php-cgi'yi bulur. Verilen yol doğrudan denenir; verilmediyse
-// PATH'te aranır (Windows'ta .exe uzantısı otomatik eklenir).
-func findPHPCGI(given string) (string, error) {
+// findPHPCGI, php-cgi'yi bulur.
+//
+// Sıra: açıkça verilen yol → DevBox'ın kurduğu runtime → PATH. Kendi
+// kurduğumuzu PATH'ten önce denemek, makinede başka bir PHP olsa bile
+// projenin beklediği sürümün kullanılmasını sağlıyor.
+func findPHPCGI(given, versionSpec string) (string, error) {
 	if given != "" {
 		abs, err := filepath.Abs(given)
 		if err != nil {
@@ -600,10 +607,26 @@ func findPHPCGI(given string) (string, error) {
 		return abs, nil
 	}
 
+	spec := "php"
+	if versionSpec != "" {
+		spec = "php@" + versionSpec
+	}
+	if inst, ok, err := runtimeStore().Resolve(spec); err == nil && ok {
+		if bin, err := inst.Bin("php-cgi"); err == nil {
+			if _, err := os.Stat(bin); err == nil {
+				return bin, nil
+			}
+		}
+	}
+	if versionSpec != "" {
+		return "", fmt.Errorf("php %s kurulu değil (devbox runtime install php@%s)", versionSpec, versionSpec)
+	}
+
 	found, err := exec.LookPath("php-cgi")
 	if err != nil {
-		return "", errors.New("php-cgi PATH'te yok; -php ile yolunu verin " +
-			"(Windows'ta genellikle C:\\php\\php-cgi.exe)")
+		return "", errors.New("php-cgi bulunamadı\n" +
+			"  • DevBox ile kurun: devbox runtime install php@8.3\n" +
+			"  • ya da yolunu verin: -php C:\\php\\php-cgi.exe")
 	}
 	return found, nil
 }

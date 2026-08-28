@@ -3,9 +3,9 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 0 tamamlandı.** Dört prototip de çalışıyor ve testleri var:
-> PHP FastCGI süreç havuzu, yerel sertifika otoritesi, `*.test` çözücüsü ve
-> kenar proxy. Sırada Faz 1 (çekirdek servis ve runtime kayıt defteri) var.
+> **Durum: Faz 1 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> `*.test` çözücüsü, kenar proxy) tamamlandı. Faz 1'de runtime kayıt defteri
+> hazır; çekirdek servis ve ayrıcalıklı yardımcı sırada.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -25,6 +25,7 @@ Bunun arkasında duran parçalar:
 | `internal/web` | HTTP → FastCGI köprüsü, CGI değişkenleri ve güvenlik denetimleri |
 | `internal/certs` | Yerel kök CA, joker SAN'lı site sertifikaları, sessiz yenileme |
 | `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
+| `internal/runtime` | Runtime kayıt defteri: imzalı manifest, sürdürülebilir indirme, SHA256, sürümlü atomik kurulum |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
@@ -34,6 +35,19 @@ Bunun arkasında duran parçalar:
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
 kapanıyor; kalıcı FastCGI kipinde çalıştırıp süreç yönetimini üstlenmek
 gerekiyor. Laragon'un en zayıf yeri de burası.
+
+Runtime tarafında: Laragon'da bileşenler elle indirilip bir klasöre atılır —
+bütünlük doğrulaması, sürüm yönetimi, geri alma ve temizlik yoktur. Buradaki
+sözleşme bunun tersi: her indirme SHA256 ile doğrulanır ve eşleşmeyen dosya
+diske kalıcı yazılmaz; kurulum atomiktir (arşiv geçici dizine açılır, ancak
+eksiksizse yerine taşınır); sürümler yan yana durur; manifest ed25519 ile
+imzalanır. Arşivden çıkan `../` girdileri sessizce düzeltilmez, reddedilir —
+meşru bir dağıtımda böyle bir girdi olmaz.
+
+> Manifest yayın altyapısı henüz yok: imzalayacak anahtar üretilmediği için
+> **uzaktan manifest reddediliyor**, yerel dosyayla çalışılıyor. Fail-closed
+> davranış bilinçli; doğrulanmamış bir liste istenmeyen bir ikilinin
+> kurulmasına yol açar.
 
 Kenar tarafında: Laragon'daki "Apache **veya** Nginx" seçimi mimari bir
 zorunluluk değil, sadece 80. portu tek sürecin dinleyebilmesinden kaynaklanıyor.
