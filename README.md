@@ -5,7 +5,7 @@ Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yen
 
 > **Durum: Faz 1 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) tamamlandı. Faz 1'de runtime kayıt defteri
-> hazır; çekirdek servis ve ayrıcalıklı yardımcı sırada.
+> ve süreç denetçisi hazır; REST API ve ayrıcalıklı yardımcı sırada.
 > Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
 
 ## Şu an ne çalışıyor
@@ -26,6 +26,7 @@ Bunun arkasında duran parçalar:
 | `internal/certs` | Yerel kök CA, joker SAN'lı site sertifikaları, sessiz yenileme |
 | `internal/trust` | Kökü Windows güven deposuna ve Firefox'un NSS veritabanına kurma |
 | `internal/runtime` | Runtime kayıt defteri: imzalı manifest, sürdürülebilir indirme, SHA256, sürümlü atomik kurulum |
+| `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
 | `internal/edge` | 80/443'ü dinleyip host adına göre dağıtan ters vekil |
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
