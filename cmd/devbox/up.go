@@ -136,7 +136,7 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 	if _, err := store.Certificate(cfg.Domain); err != nil {
 		return err
 	}
-	if installed, err := trust.IsInstalled(store.RootCertPath()); err == nil && !installed {
+	if installed, err := trust.IsInstalled(store.RootCertPath(), trust.ScopeUser); err == nil && !installed {
 		logger.Warn("kök sertifika güven deposunda değil; tarayıcı uyarı verecek",
 			"çözüm", "devbox trust install")
 	}

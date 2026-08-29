@@ -126,7 +126,7 @@ func TestInstallReportsEveryTarget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	results, err := Install(ctx, rootPEM)
+	results, err := Install(ctx, rootPEM, ScopeUser)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -161,9 +161,9 @@ func TestSystemStoreRoundTrip(t *testing.T) {
 	// sertifika eklerken onay penceresi gösterir ve birinin onaylaması
 	// gerekir. Otomatikleştirilemez, CI'da koşamaz.
 	rootPEM := newRoot(t)
-	t.Cleanup(func() { Uninstall(rootPEM) })
+	t.Cleanup(func() { Uninstall(rootPEM, ScopeUser) })
 
-	if installed, err := IsInstalled(rootPEM); err != nil {
+	if installed, err := IsInstalled(rootPEM, ScopeUser); err != nil {
 		t.Fatalf("IsInstalled: %v", err)
 	} else if installed {
 		t.Fatal("yeni üretilen kök depoda görünüyor")
@@ -175,20 +175,20 @@ func TestSystemStoreRoundTrip(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if res := installSystem(ctx, cert); !res.Installed {
+	if res := installSystem(ctx, cert, ScopeUser); !res.Installed {
 		t.Fatalf("kurulum başarısız: %v", res.Err)
 	}
 
-	if installed, err := IsInstalled(rootPEM); err != nil {
+	if installed, err := IsInstalled(rootPEM, ScopeUser); err != nil {
 		t.Fatalf("IsInstalled: %v", err)
 	} else if !installed {
 		t.Error("kurulumdan sonra kök depoda bulunamadı")
 	}
 
-	if err := Uninstall(rootPEM); err != nil {
+	if err := Uninstall(rootPEM, ScopeUser); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
-	if installed, err := IsInstalled(rootPEM); err != nil {
+	if installed, err := IsInstalled(rootPEM, ScopeUser); err != nil {
 		t.Fatalf("IsInstalled: %v", err)
 	} else if installed {
 		t.Error("kaldırmadan sonra kök hâlâ depoda")

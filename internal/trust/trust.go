@@ -62,36 +62,62 @@ func (r Result) String() string {
 	}
 }
 
-// Install, PEM dosyasındaki kök sertifikayı bulunabilen tüm güven depolarına
-// kurar. Hiçbiri başarılı olmasa bile sonuç listesi döner; çağıran hangi
-// hedefin neden başarısız olduğunu görebilsin.
-func Install(ctx context.Context, rootPEMPath string) ([]Result, error) {
+// Scope, kök sertifikanın hangi güven deposuna kurulacağı.
+type Scope int
+
+const (
+	// ScopeUser, kullanıcının kendi deposu. Öntanımlı.
+	//
+	// Yönetici hakkı gerektirmiyor ama Windows bir onay penceresi
+	// gösteriyor ve kullanıcının "Evet" demesi gerekiyor.
+	ScopeUser Scope = iota
+
+	// ScopeMachine, makine geneli depo.
+	//
+	// Yönetici hakkı gerektiriyor; karşılığında onay penceresi
+	// çıkmıyor. Masaüstü oturumu olmayan yerler (CI, uzak oturum,
+	// otomatik kurulum) için tek yol bu — pencere gösterilemediğinde
+	// kullanıcı deposuna ekleme çağrısı süresiz bekliyor.
+	ScopeMachine
+)
+
+func (s Scope) String() string {
+	if s == ScopeMachine {
+		return "makine geneli"
+	}
+	return "kullanıcı"
+}
+
+// Install, PEM dosyasındaki kök sertifikayı bulunabilen tüm güven
+// depolarına kurar. Hiçbiri başarılı olmasa bile sonuç listesi döner;
+// çağıran hangi hedefin neden başarısız olduğunu görebilsin.
+func Install(ctx context.Context, rootPEMPath string, scope Scope) ([]Result, error) {
 	cert, err := loadCert(rootPEMPath)
 	if err != nil {
 		return nil, err
 	}
 
-	results := []Result{installSystem(ctx, cert)}
+	results := []Result{installSystem(ctx, cert, scope)}
 	results = append(results, installFirefox(ctx, rootPEMPath, cert)...)
 	return results, nil
 }
 
 // IsInstalled, kökün işletim sistemi güven deposunda olup olmadığını söyler.
-func IsInstalled(rootPEMPath string) (bool, error) {
+func IsInstalled(rootPEMPath string, scope Scope) (bool, error) {
 	cert, err := loadCert(rootPEMPath)
 	if err != nil {
 		return false, err
 	}
-	return systemContains(cert)
+	return systemContains(cert, scope)
 }
 
 // Uninstall, kökü işletim sistemi güven deposundan kaldırır.
-func Uninstall(rootPEMPath string) error {
+func Uninstall(rootPEMPath string, scope Scope) error {
 	cert, err := loadCert(rootPEMPath)
 	if err != nil {
 		return err
 	}
-	return systemRemove(cert)
+	return systemRemove(cert, scope)
 }
 
 func loadCert(path string) (*x509.Certificate, error) {

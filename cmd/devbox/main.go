@@ -263,7 +263,7 @@ func runServe(args []string) error {
 		handler.HTTPS = true
 		scheme = "https"
 
-		if installed, err := trust.IsInstalled(store.RootCertPath()); err == nil && !installed {
+		if installed, err := trust.IsInstalled(store.RootCertPath(), trust.ScopeUser); err == nil && !installed {
 			logger.Warn("kök sertifika güven deposunda değil; tarayıcı uyarı verecek",
 				"çözüm", "devbox trust install")
 		}
@@ -310,14 +310,25 @@ func runServe(args []string) error {
 
 func runTrust(args []string) error {
 	fs := flag.NewFlagSet("trust", flag.ContinueOnError)
+	machine := fs.Bool("machine", false,
+		"makine geneli depoya kur (yönetici hakkı ister, onay penceresi çıkmaz)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, `Kullanım: devbox trust <alt komut>
+		fmt.Fprint(os.Stderr, `Kullanım: devbox trust <alt komut> [seçenekler]
 
   install     kök sertifikayı güven depolarına kur (Windows + Firefox)
   status      kurulu mu diye bak
   uninstall   işletim sistemi güven deposundan kaldır
   path        kök sertifika dosyasının yolunu yazdır
+
+Öntanımlı olarak kullanıcının güven deposuna kurulur; Windows bir onay
+penceresi gösterir ve "Evet" demeniz gerekir.
+
+-machine makine geneli depoya kurar: yönetici hakkı ister ama onay
+penceresi çıkmaz. Masaüstü oturumu olmayan yerlerde (CI, uzak oturum,
+otomatik kurulum) tek çalışan yol budur.
+
 `)
+		fs.PrintDefaults()
 	}
 	// Alt komutu bayraklardan önce ayırıyoruz: flag paketi ilk konumsal
 	// argümandan sonra ayrıştırmayı durdurur, yani "serve -addr ..."
@@ -336,13 +347,18 @@ func runTrust(args []string) error {
 	}
 	rootPath := store.RootCertPath()
 
+	scope := trust.ScopeUser
+	if *machine {
+		scope = trust.ScopeMachine
+	}
+
 	switch sub {
 	case "path":
 		fmt.Println(rootPath)
 		return nil
 
 	case "status":
-		installed, err := trust.IsInstalled(rootPath)
+		installed, err := trust.IsInstalled(rootPath, scope)
 		fmt.Println("kök sertifika:", rootPath)
 		fmt.Println("geçerlilik   :", store.RootCertificate().NotAfter.Format("2006-01-02"))
 		switch {
@@ -364,7 +380,7 @@ func runTrust(args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		results, err := trust.Install(ctx, rootPath)
+		results, err := trust.Install(ctx, rootPath, scope)
 		if err != nil {
 			return err
 		}
@@ -382,7 +398,7 @@ func runTrust(args []string) error {
 		return nil
 
 	case "uninstall":
-		if err := trust.Uninstall(rootPath); err != nil {
+		if err := trust.Uninstall(rootPath, scope); err != nil {
 			return err
 		}
 		fmt.Println("kök sertifika işletim sistemi güven deposundan kaldırıldı")
@@ -462,7 +478,7 @@ Böylece Apache, Nginx ve uygulama süreçleri aynı anda çalışabilir.
 		}
 		srv.TLSConfig = store.TLSConfig()
 
-		if installed, err := trust.IsInstalled(store.RootCertPath()); err == nil && !installed {
+		if installed, err := trust.IsInstalled(store.RootCertPath(), trust.ScopeUser); err == nil && !installed {
 			logger.Warn("kök sertifika güven deposunda değil; tarayıcı uyarı verecek",
 				"çözüm", "devbox trust install")
 		}

@@ -1,0 +1,232 @@
+name: Windows duman testi
+
+# Bu iş, deponun en uzun süre açık kalan doğrulama boşluğunu kapatmak
+# için var: yığının gerçek Windows'ta hiç çalıştırılmamış olması.
+#
+# GitHub'ın windows-latest koşucusu gerçek bir Windows Server ve süreçler
+# yükseltilmiş yönetici belirteciyle çalışıyor — yani NRPT kuralı ve
+# makine geneli sertifika deposu gerçekten denenebiliyor.
+#
+# Kapsamadıkları tests/windows-smoke/README.md'de yazılı.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Gerçek Windows'ta uçtan uca
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Derle
+        run: |
+          go build -o devbox.exe ./cmd/devbox
+          go build -o arka-uc.exe tests/windows-smoke/arka-uc.go
+          .\devbox.exe version
+
+      - name: Yönetici mi, göster
+        shell: pwsh
+        run: |
+          $kimlik = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $rol = New-Object Security.Principal.WindowsPrincipal($kimlik)
+          $yonetici = $rol.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host "kullanıcı : $($kimlik.Name)"
+          Write-Host "yönetici  : $yonetici"
+          if (-not $yonetici) {
+            Write-Host "::warning::Koşucu yönetici değil; NRPT ve makine deposu adımları atlanacak"
+          }
+          "ADMIN=$yonetici" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Kök sertifikayı makine deposuna kur
+        shell: pwsh
+        run: |
+          .\devbox.exe cert issue magaza.test
+          .\devbox.exe trust install -machine
+          .\devbox.exe trust status
+
+          # Bağımsız doğrulama: sertifika gerçekten Windows deposunda mı?
+          $kokYolu = .\devbox.exe trust path
+          $kok = New-Object Security.Cryptography.X509Certificates.X509Certificate2($kokYolu)
+          Write-Host "kök parmak izi: $($kok.Thumbprint)"
+
+          $depo = Get-ChildItem Cert:\LocalMachine\Root |
+                  Where-Object { $_.Thumbprint -eq $kok.Thumbprint }
+          if (-not $depo) {
+            throw "Kök sertifika LocalMachine\Root deposunda bulunamadı"
+          }
+          Write-Host "✓ kök sertifika makine güven deposunda: $($depo.Subject)"
+
+      - name: Yerel çözücüyü ve NRPT kuralını kur
+        shell: pwsh
+        run: |
+          Start-Process -FilePath .\devbox.exe -ArgumentList 'dns','serve' `
+            -RedirectStandardOutput dns-out.log -RedirectStandardError dns-err.log
+          Start-Sleep -Seconds 2
+
+          .\devbox.exe dns install
+          .\devbox.exe dns status
+
+          # Bağımsız doğrulama: kural gerçekten NRPT'de mi?
+          $kural = Get-DnsClientNrptRule | Where-Object { $_.Namespace -contains '.test' }
+          if (-not $kural) {
+            Get-DnsClientNrptRule | Format-List | Out-String | Write-Host
+            throw "NRPT kuralı bulunamadı"
+          }
+          Write-Host "✓ NRPT kuralı var: $($kural.Namespace) → $($kural.NameServers)"
+
+      - name: Alan adı gerçekten çözülüyor mu
+        shell: pwsh
+        run: |
+          # Windows'un kendi çözücüsü üzerinden: NRPT kuralı devredeyse
+          # istek DevBox'ın çözücüsüne gidiyor.
+          $sonuc = Resolve-DnsName -Name magaza.test -ErrorAction SilentlyContinue
+          if (-not $sonuc) {
+            Get-Content dns-out.log, dns-err.log -ErrorAction SilentlyContinue | Write-Host
+            throw "magaza.test çözülemedi"
+          }
+          $sonuc | Format-Table -AutoSize | Out-String | Write-Host
+          $ip = ($sonuc | Where-Object { $_.IPAddress } | Select-Object -First 1).IPAddress
+          if ($ip -ne '127.0.0.1') {
+            throw "magaza.test $ip adresine çözüldü, 127.0.0.1 bekleniyordu"
+          }
+          Write-Host "✓ magaza.test → 127.0.0.1"
+
+      - name: Projeyi ayağa kaldır
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path site | Out-Null
+          @'
+          name: magaza
+          domain: magaza.test
+          server: proxy
+          proxy: http://127.0.0.1:3999
+          '@ | Set-Content -Path site\devbox.yaml -Encoding utf8
+
+          Start-Process -FilePath .\arka-uc.exe `
+            -RedirectStandardOutput arka-uc.log -RedirectStandardError arka-uc-err.log
+          Start-Sleep -Seconds 2
+
+          Start-Process -FilePath ..\devbox.exe -WorkingDirectory site `
+            -ArgumentList 'up' `
+            -RedirectStandardOutput ..\up.log -RedirectStandardError ..\up-err.log
+          # Hazır satırını bekle.
+          $son = (Get-Date).AddSeconds(60)
+          while ((Get-Date) -lt $son) {
+            if ((Test-Path up.log) -and (Select-String -Path up.log -Pattern 'hazır: https' -Quiet)) {
+              break
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          Get-Content up.log, up-err.log -ErrorAction SilentlyContinue | Write-Host
+          if (-not (Select-String -Path up.log -Pattern 'hazır: https' -Quiet)) {
+            throw "devbox up hazır olmadı"
+          }
+          Write-Host "✓ devbox up ayakta"
+
+      - name: MVP kabul kriteri — uyarısız HTTPS
+        shell: pwsh
+        run: |
+          # -k YOK. curl.exe Windows'ta Schannel kullanıyor, yani zincir
+          # doğrulaması işletim sisteminin güven deposundan geçiyor.
+          # Bu adımın geçmesi, "temiz bir Windows'ta tarayıcı uyarmıyor"
+          # demenin ölçülebilir hâli.
+          $yanit = curl.exe --silent --show-error --fail https://magaza.test/duman 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host $yanit
+            Get-Content ..\up.log -ErrorAction SilentlyContinue | Write-Host
+            throw "https://magaza.test açılamadı (çıkış kodu $LASTEXITCODE)"
+          }
+          Write-Host "yanıt: $yanit"
+          if ($yanit -notmatch 'DEVBOX-DUMAN-TESTI') {
+            throw "beklenen yanıt gelmedi"
+          }
+          Write-Host "✓ https://magaza.test — Windows güven zinciriyle, uyarısız"
+
+      - name: HTTP'den HTTPS'e yönlendirme
+        shell: pwsh
+        run: |
+          $kod = curl.exe --silent --output NUL --write-out '%{http_code}' http://magaza.test/
+          Write-Host "http yanıt kodu: $kod"
+          if ($kod -notmatch '^30[178]$') {
+            throw "HTTP isteği HTTPS'e yönlendirilmedi ($kod)"
+          }
+          Write-Host "✓ HTTP → HTTPS yönlendirmesi çalışıyor"
+
+      - name: Posta kutusu ve denetleyici
+        shell: pwsh
+        run: |
+          $posta = curl.exe --silent --fail https://mail.magaza.test/api/messages
+          if ($LASTEXITCODE -ne 0) { throw "posta kutusu açılamadı" }
+          Write-Host "posta kutusu yanıtı: $posta"
+
+          $denet = curl.exe --silent --fail https://inspect.magaza.test/api/state
+          if ($LASTEXITCODE -ne 0) { throw "denetleyici açılamadı" }
+          Write-Host "denetleyici durumu: $denet"
+
+          # Denetleyici az önceki istekleri kaydetmiş olmalı.
+          $kayitlar = curl.exe --silent --fail https://inspect.magaza.test/api/exchanges | ConvertFrom-Json
+          Write-Host "kaydedilen istek sayısı: $($kayitlar.Count)"
+          if ($kayitlar.Count -lt 1) { throw "denetleyici hiçbir istek kaydetmemiş" }
+          Write-Host "✓ posta kutusu ve denetleyici ayakta"
+
+      - name: SMTP yakalayıcı gerçekten posta alıyor mu
+        shell: pwsh
+        run: |
+          $istemci = New-Object Net.Mail.SmtpClient('127.0.0.1', 1025)
+          $istemci.Send('uygulama@magaza.test', 'kerim@magaza.test',
+                        'Windows duman testi', 'gövde')
+          Start-Sleep -Seconds 1
+
+          $son = curl.exe --silent --fail https://mail.magaza.test/api/latest | ConvertFrom-Json
+          Write-Host "yakalanan konu: $($son.subject)"
+          if ($son.subject -ne 'Windows duman testi') {
+            throw "posta yakalanmadı"
+          }
+          Write-Host "✓ SMTP yakalayıcı çalışıyor"
+
+      - name: Kapanış ve temizlik
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process devbox -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "durduruluyor: pid $($_.Id)"
+            $_.CloseMainWindow() | Out-Null
+          }
+          Start-Sleep -Seconds 3
+          Get-Process devbox -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process arka-uc -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          .\devbox.exe dns uninstall
+          $kalan = Get-DnsClientNrptRule | Where-Object { $_.Namespace -contains '.test' }
+          if ($kalan) { Write-Host "::warning::NRPT kuralı kaldırılamadı" }
+          else { Write-Host "✓ NRPT kuralı temizlendi" }
+
+          .\devbox.exe trust uninstall -machine
+
+      - name: Günlükleri yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-duman-gunlukleri
+          path: |
+            up.log
+            up-err.log
+            dns-out.log
+            dns-err.log
+            arka-uc.log
+            arka-uc-err.log
+          if-no-files-found: ignore

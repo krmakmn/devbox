@@ -12,31 +12,65 @@ import (
 	"unsafe"
 )
 
-// Windows'ta kök, kullanıcının ROOT deposuna kurulur. Makine geneli
-// (LOCAL_MACHINE) yönetici hakkı ister; geliştirme ortamı için kullanıcı
-// deposu hem yeter hem de yükseltme istemez. Chrome ve Edge bu depoyu okur.
+// Windows'ta iki güven deposu var ve ikisi de gerçek bir gereksinime
+// karşılık geliyor.
+//
+// Kullanıcı deposu (öntanımlı): yönetici hakkı istemiyor ama Windows bir
+// onay penceresi gösteriyor ve çağrı yanıtlanana kadar dönmüyor. Masaüstü
+// başında oturan kullanıcı için doğru yol.
+//
+// Makine deposu: yönetici hakkı istiyor, onay penceresi göstermiyor.
+// Masaüstü oturumu olmayan her yerde (CI, uzak oturum, otomatik kurulum)
+// tek çalışan yol bu — pencere gösterilemediğinde kullanıcı deposuna
+// ekleme süresiz bekliyor. Faz 0'da CI'da on dakikalık zaman aşımıyla
+// keşfedilen davranış tam olarak buydu.
+//
+// Chrome ve Edge iki depoyu da okuyor.
 const (
 	certStoreAddReplaceExisting = 3
 	certCompareShift            = 16
 	certCompareAny              = 0
 	certFindAny                 = certCompareAny << certCompareShift
+
+	certStoreProvSystemW        = 10
+	certSystemStoreLocalMachine = 2 << 16
+	certSystemStoreCurrentUser  = 1 << 16
 )
 
 var (
 	crypt32                            = syscall.NewLazyDLL("crypt32.dll")
 	procCertDeleteCertificateFromStore = crypt32.NewProc("CertDeleteCertificateFromStore")
+	procCertOpenStore                  = crypt32.NewProc("CertOpenStore")
 )
 
-func openRootStore() (syscall.Handle, error) {
+// openRootStore, istenen kapsamdaki ROOT deposunu açar.
+func openRootStore(scope Scope) (syscall.Handle, error) {
 	name, err := syscall.UTF16PtrFromString("ROOT")
 	if err != nil {
 		return 0, err
 	}
-	store, err := syscall.CertOpenSystemStore(0, name)
-	if err != nil {
-		return 0, fmt.Errorf("trust: ROOT deposu açılamadı: %w", err)
+
+	flags := uintptr(certSystemStoreCurrentUser)
+	if scope == ScopeMachine {
+		flags = uintptr(certSystemStoreLocalMachine)
 	}
-	return store, nil
+
+	// CertOpenSystemStore yalnız kullanıcı deposunu açabiliyor; kapsam
+	// seçebilmek için CertOpenStore gerekiyor.
+	handle, _, callErr := procCertOpenStore.Call(
+		uintptr(certStoreProvSystemW),
+		0, 0,
+		flags,
+		uintptr(unsafe.Pointer(name)),
+	)
+	if handle == 0 {
+		if scope == ScopeMachine {
+			return 0, fmt.Errorf(
+				"trust: makine geneli ROOT deposu açılamadı (yönetici hakkı gerekiyor): %w", callErr)
+		}
+		return 0, fmt.Errorf("trust: ROOT deposu açılamadı: %w", callErr)
+	}
+	return syscall.Handle(handle), nil
 }
 
 // installSystem, kökü kullanıcının ROOT deposuna ekler.
@@ -46,17 +80,23 @@ func openRootStore() (syscall.Handle, error) {
 // süresiz bloke olur; bu yüzden ekleme ayrı bir goroutine'de yapılıp
 // bağlamla sınırlanıyor. Goroutine kendi hâline bırakılıyor: syscall'ı
 // iptal etmenin yolu yok, ama süreç sonlandığında o da gider.
-func installSystem(ctx context.Context, cert *x509.Certificate) Result {
-	res := Result{Target: "Windows güven deposu (Chrome, Edge)"}
+func installSystem(ctx context.Context, cert *x509.Certificate, scope Scope) Result {
+	res := Result{Target: "Windows güven deposu (Chrome, Edge) — " + scope.String()}
 
+	// Makine deposunda onay penceresi çıkmıyor, yani bağlamla sınırlama
+	// gerekmiyor; yine de aynı yolu kullanıyoruz ki tek bir kod yolu
+	// olsun.
 	done := make(chan error, 1)
-	go func() { done <- addToRootStore(cert) }()
+	go func() { done <- addToRootStore(cert, scope) }()
 
 	select {
 	case err := <-done:
 		if err != nil {
 			res.Err = err
 			res.Hint = "certutil -addstore -user Root <kök.crt> ile elle kurabilirsiniz"
+			if scope == ScopeMachine {
+				res.Hint = "yönetici olarak: certutil -addstore -f Root <kök.crt>"
+			}
 			return res
 		}
 		res.Installed = true
@@ -65,13 +105,13 @@ func installSystem(ctx context.Context, cert *x509.Certificate) Result {
 		res.Err = errors.New("Windows onay penceresi yanıtlanmadı")
 		res.Hint = "Kök sertifika eklerken Windows onay ister. Açılan pencereyi onaylayın; " +
 			"masaüstü oturumu yoksa (servis, CI, uzak oturum) bu yol kullanılamaz — " +
-			"certutil -addstore -user Root <kök.crt> deneyin"
+			"yönetici olarak \"devbox trust install -machine\" deneyin"
 		return res
 	}
 }
 
-func addToRootStore(cert *x509.Certificate) error {
-	store, err := openRootStore()
+func addToRootStore(cert *x509.Certificate, scope Scope) error {
+	store, err := openRootStore(scope)
 	if err != nil {
 		return err
 	}
@@ -92,8 +132,8 @@ func addToRootStore(cert *x509.Certificate) error {
 	return nil
 }
 
-func systemContains(cert *x509.Certificate) (bool, error) {
-	store, err := openRootStore()
+func systemContains(cert *x509.Certificate, scope Scope) (bool, error) {
+	store, err := openRootStore(scope)
 	if err != nil {
 		return false, err
 	}
@@ -133,8 +173,8 @@ func findInStore(store syscall.Handle, cert *x509.Certificate) (bool, *syscall.C
 	}
 }
 
-func systemRemove(cert *x509.Certificate) error {
-	store, err := openRootStore()
+func systemRemove(cert *x509.Certificate, scope Scope) error {
+	store, err := openRootStore(scope)
 	if err != nil {
 		return err
 	}
