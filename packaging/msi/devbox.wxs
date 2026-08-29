@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX kaynağı (taslak — derlenmedi, doğrulanmadı).
+
+  Derleme (Windows'ta, WiX v4 ile):
+    wix build devbox.wxs -o DevBox-0.0.0-x64.msi
+
+  Neden Program Files ve PATH:
+    devbox bir komut satırı aracı; PATH'e eklenmezse kullanıcı her
+    seferinde tam yolu yazar. Kurulum makine geneline yapılıyor
+    (ALLUSERS) çünkü PATH değişikliği ve kurulum dizini yönetici hakkı
+    istiyor — ama DevBox'ın GÜNLÜK kullanımı yönetici hakkı gerektirmez;
+    bu ayrım projenin baştan beri sürdürdüğü karar.
+
+  Kurulum kök sertifika kurmuyor, DNS kuralı yazmıyor, servis
+  tanımlamıyor. Onlar kullanıcının açıkça çalıştırdığı komutlar
+  (devbox trust install, devbox dns install) ve her biri kendi UAC
+  onayını istiyor. Kurulumun sessizce güven deposuna dokunması, bir
+  paket yöneticisinden beklenmeyecek bir davranış olurdu.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="DevBox"
+      Manufacturer="Kerim AKMAN"
+      Version="0.0.0"
+      UpgradeCode="7f3a1c92-5d84-4f1b-9c2e-8a6b0d4e1f37"
+      Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="Daha yeni bir DevBox sürümü zaten kurulu." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DevBox" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Bilesenler" Directory="INSTALLFOLDER">
+      <Component Id="DevBoxExe">
+        <File Id="devbox.exe" Source="devbox.exe" KeyPath="yes" />
+        <Environment
+            Id="PathEkle"
+            Name="PATH"
+            Value="[INSTALLFOLDER]"
+            Permanent="no"
+            Part="last"
+            Action="set"
+            System="yes" />
+      </Component>
+      <Component Id="Lisans">
+        <File Id="LICENSE" Source="LICENSE" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Ana" Title="DevBox" Level="1">
+      <ComponentGroupRef Id="Bilesenler" />
+    </Feature>
+  </Package>
+</Wix>

@@ -3,24 +3,27 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 8 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
-> `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
-> defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
-> hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
-> kod tarafı (`devbox.yaml`, çerçeve algılama, `devbox up`/`down`) tamamlandı.
-> Faz 4'te veritabanı örnekleri, Faz 5'te posta yakalayıcı, zamanlanmış
-> görevler ve yan servisler çalışıyor. Faz 6'da proje kaydı ve denetim
-> paneli geldi: `devbox ui` ile projeler listeleniyor, tek tıkla başlayıp
-> duruyor, günlükler canlı akıyor.
+> **Durum: sekiz fazın kod tarafı tamamlandı — ama v1.0 değil, v0.9.**
 >
-> **MVP'nin kabul kriteri henüz karşılanmadı:** "temiz bir Windows'ta
-> `devbox up` → tarayıcıda uyarısız `https://`". NRPT, Firefox NSS, UAC ve
-> Windows'un Apache/Nginx derlemeleri gerçek bir makinede hiç denenmedi;
-> CI bunları kapsayamıyor.
+> Yerel geliştirme ortamının tamamı çalışıyor: PHP havuzu, Apache/Nginx
+> sürücüleri, yerel CA ve otomatik TLS, `*.test` çözümlemesi, kenar vekili,
+> veritabanı örnekleri, posta yakalayıcı, zamanlanmış görevler, yan servisler,
+> konteyner sürücüsü, yerel ACME sunucusu, HTTP denetleyicisi, denetim paneli,
+> VS Code eklentisi ve Laragon/XAMPP göç aracı.
 >
-> Not: NRPT, Firefox NSS ve Windows onay penceresi yolları CI'nin
-> kapsayamadığı yerler — gerçek bir Windows makinesinde elle denenmedi.
-> Plan: **[docs/yol-haritasi.md](docs/yol-haritasi.md)**
+> **Karşılanmayan tek şey doğrulama:** bu yığın gerçek bir Windows makinesinde
+> hiç çalıştırılmadı. NRPT, Firefox NSS, UAC yükseltmesi, kök sertifika onay
+> penceresi ve Windows'un Apache/Nginx derlemeleri CI'nin kapsayamadığı yollar —
+> ve güvenlik açısından en riskli kod (ayrıcalık yükseltme) tam olarak orada.
+> Bağımsız güvenlik denetimi de yapılmadı.
+>
+> v1.0 için gereken iki şey teknik değil: bir Windows makinesinde bir saatlik
+> deneme ve bir bağımsız denetim.
+>
+> Başlangıç: **[docs/baslangic.md](docs/baslangic.md)** ·
+> Plan ve kararlar: **[docs/yol-haritasi.md](docs/yol-haritasi.md)** ·
+> Güvenlik: **[docs/guvenlik.md](docs/guvenlik.md)** ·
+> Ölçümler: **[docs/performans.md](docs/performans.md)**
 
 ## Şu an ne çalışıyor
 

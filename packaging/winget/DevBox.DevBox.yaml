@@ -1,0 +1,41 @@
+# winget paket manifesti (taslak — yayınlanmadı, doğrulanmadı)
+#
+# Gerçek yayın için gerekenler:
+#   1. GitHub'da imzalanmış bir sürüm ve .msi eki
+#   2. InstallerSha256'nın o dosyadan hesaplanması
+#   3. microsoft/winget-pkgs deposuna PR
+#
+# Doğrulama: winget validate --manifest .
+PackageIdentifier: DevBox.DevBox
+PackageVersion: 0.0.0
+PackageLocale: tr-TR
+Publisher: Kerim AKMAN
+PublisherUrl: https://github.com/krmakmn
+PackageName: DevBox
+PackageUrl: https://github.com/krmakmn/devbox
+License: MIT
+ShortDescription: Windows için yerel geliştirme ortamı
+Description: |-
+  Apache, Nginx, PHP, MySQL, MariaDB, PostgreSQL, yerel posta yakalayıcı,
+  otomatik TLS ve *.test alan adı çözümlemesi. Laragon'un kolaylığı,
+  DDEV'in yeniden üretilebilirliği.
+Moniker: devbox
+Tags:
+  - php
+  - laravel
+  - nginx
+  - apache
+  - mysql
+  - postgresql
+  - development
+Installers:
+  - Architecture: x64
+    InstallerType: wix
+    InstallerUrl: https://github.com/krmakmn/devbox/releases/download/v0.0.0/DevBox-0.0.0-x64.msi
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSwitches:
+      Silent: /quiet
+      SilentWithProgress: /passive
+    UpgradeBehavior: install
+ManifestType: singleton
+ManifestVersion: 1.6.0

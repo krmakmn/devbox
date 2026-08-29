@@ -535,17 +535,39 @@ birlikte ele alınacak.
   noktaları. Yol haritasının işaret ettiği "helper IPC ve LPE yüzeyi" zaten
   **yok**: Faz 1'de kalıcı ayrıcalıklı servis terk edildi. Gözden geçirmede iki
   gerçek bulgu düzeltildi (aşağıdaki tabloya eklendi).
-- Kod imzalama, MSI/`winget` paketi, delta güncelleyici, çökme raporlama
-  (kullanıcı onaylı).
+- Kod imzalama, MSI/`winget` paketi ⏳ **taslak** (`packaging/`): sürüm derleme
+  betiği çalışıyor ve doğrulandı; MSI, winget manifesti ve imzalama betiği
+  yazıldı ama **çalıştırılamadı** — sertifika, WiX ve Windows gerekiyor.
+  Delta güncelleyici ve çökme raporlama **yapılmadı**, gerekçeleri
+  `packaging/README.md`'de: winget zaten güncelleme yolu sağlıyor ve kendi
+  güncelleyicisini yazmak yeni bir saldırı yüzeyi demek; çökme raporlaması ise
+  bir sunucu ve gizlilik ilkesi gerektirerek aracın yerel olma niteliğini
+  değiştiriyor.
 - Laragon/XAMPP'tan **göç aracı** ✅ `internal/migrate`, `devbox migrate`.
   Laragon, XAMPP ve WAMP kurulumlarını buluyor; XAMPP'ta sanal konak dosyasını
   da okuyor. Dosya kopyalamıyor, var olan kurulumu değiştirmiyor, `-apply`
   denmeden hiçbir şey yazmıyor. Veritabanı içe aktarımı `devbox db import` ile
   ayrı ⏳ (göç aracı henüz DB'leri otomatik taşımıyor).
-- Belgeler.
-- Performans kıyasları: soğuk başlatma, ilk istek gecikmesi, RAM.
+- Belgeler ✅ `docs/baslangic.md` (sıfırdan çalışan siteye), `docs/guvenlik.md`,
+  `docs/performans.md`, `packaging/README.md`.
+- Performans kıyasları: soğuk başlatma, ilk istek gecikmesi, RAM. ✅
+  `docs/performans.md` — soğuk başlatma 33 ms, kenarın istek başına maliyeti
+  ~360 µs, bellek 18 MB. **Hepsi Linux'ta ölçüldü.**
 - **Kabul:** denetimde yüksek/kritik bulgu yok; temiz kurulumdan çalışan siteye
   5 dakika; → **v1.0**
+
+  → **Kriter karşılanmadı ve v1.0 ilan edilmiyor.** İki sebep:
+
+  1. **Bağımsız denetim yapılmadı.** Yapılan, kendi kodumuzun sistematik gözden
+     geçirmesi (`docs/guvenlik.md`) ve iki gerçek bulgunun düzeltilmesi. Kendi
+     denetimimiz "yüksek/kritik bulgu yok" demeye yetmez.
+  2. **"Temiz kurulumdan çalışan siteye 5 dakika" ölçülemedi**, çünkü bu yığın
+     gerçek bir Windows makinesinde hiç çalıştırılmadı. Bu, MVP'nin (Faz 3)
+     kabul kriterinden beri açık duran aynı boşluk.
+
+  Sürüm önerisi: **v0.9 — özellik tamam, doğrulama eksik.** v1.0 için gereken
+  iki şey teknik değil: bir Windows makinesinde bir saatlik deneme ve bir
+  bağımsız denetim.
 
 **Toplam: ≈ 44 hafta.** MVP 19. haftada.
 
