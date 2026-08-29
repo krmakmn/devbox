@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -471,5 +473,45 @@ func TestLogBufferSinceStart(t *testing.T) {
 	// Tamponun tamamı ise her ikisini de tutmalı; çökme tanısı için lazım.
 	if !strings.Contains(b.String(), "birinci") {
 		t.Error("tampon önceki koşuyu atmış; çökme tanısı kaybolur")
+	}
+}
+
+// Sarmalayıcı komutlar (sh -c, npm run dev) asıl işi bir torun sürece
+// yaptırıyor. Yalnız sarmalayıcıyı durdurmak torunu ayakta bırakıyor; torun
+// boruları açık tuttuğu için cmd.Wait() dönmüyor ve kapanış StopTimeout
+// kadar (iki kez) sürüyor. Ctrl+C'den sonra 20 saniye bekleyen bir CLI,
+// kullanıcı için takılmış demektir.
+func TestStopKillsGrandchildrenQuickly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("kabuk komutu Windows'ta farklı")
+	}
+	sup, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Close()
+
+	svc, err := sup.Add(Config{
+		Name: "sarmalayıcı",
+		Exec: "/bin/sh",
+		Args: []string{"-c", "echo hazır; exec sleep 120 & sleep 120"},
+		// Torun ölmezse iki kez bu süre kadar beklenirdi.
+		StopTimeout: 3 * time.Second,
+		Ready:       LogReady{Substring: "hazır"},
+		Restart:     RestartNever,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	svc.Stop()
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("durdurma %v sürdü; torun süreç ağacı öldürülmemiş olabilir", elapsed)
 	}
 }

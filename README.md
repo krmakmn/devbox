@@ -51,6 +51,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/services` | Yan servisler: Redis/Valkey, Meilisearch, MinIO — port tahsisi, proje başına veri dizini |
 | `internal/cron` | Zamanlanmış görevler: cron ifadesi ayrıştırma ve üst üste binmeyen çalıştırma |
 | `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
 
@@ -144,6 +145,25 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Yan servis tarafında: `devbox.yaml`'daki `services` bloğu Redis, Meilisearch ve
+MinIO'yu projeyle birlikte açıyor; her projenin kendi veri dizini var, portlar
+tahsis ediliyor ve bağlantı bilgileri süreçlere ortam değişkeni olarak
+geçiyor (`REDIS_URL`, `MEILISEARCH_HOST`, `AWS_ENDPOINT`…). Hepsi yalnız
+loopback'i dinliyor. İkili indirilmiyor, **bulunuyor**: manifest yayın
+altyapısı olmadığı için doğrulanmış indirme yapılamıyor, o yüzden PATH'te ya da
+DevBox'ın runtime dizininde aranıyor ve bulunamazsa kurulum yolunu söyleyen
+açık bir hata veriliyor. Sürüm sabitleme (`redis@7`) de aynı altyapıyı
+bekliyor; şimdilik istenen sürüm karşılanamazsa uyarı veriliyor.
+
+Kapanış tarafında çıkan bir hata: `devbox up`'ı Ctrl+C ile kapatmak 20 saniye
+sürüyordu. Sebep, denetçinin durdurma sinyalini yalnız başlattığı sürece
+göndermesiydi. Oysa yapılandırmadaki komutlar çoğunlukla sarmalayıcı
+(`sh -c ...`, `npm run dev`); sarmalayıcı ölse bile asıl işi yapan torun ayakta
+kalıyor ve boruları açık tuttuğu için `cmd.Wait()` dönmüyordu — iki kez
+`StopTimeout` bekleniyordu. Sinyal artık süreç ağacına gidiyor ve SIGINT değil
+SIGTERM: POSIX, iş denetimi kapalıyken arka plana atılmış komutların SIGINT'i
+yok saymasını şart koşuyor. Kapanış 20 saniyeden 1,5 saniyeye indi.
 
 Zamanlanmış görev tarafında: Laragon'da böyle bir şey yok, Windows'un Görev
 Zamanlayıcısı ise depoya yazılamaz. Oysa Laravel'in `schedule:run`'ı dakikada

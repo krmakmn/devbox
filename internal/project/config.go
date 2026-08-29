@@ -25,6 +25,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/krmakmn/devbox/internal/cron"
+	"github.com/krmakmn/devbox/internal/services"
 )
 
 // FileName, proje kökünde aranan dosya.
@@ -283,6 +284,13 @@ func (c *Config) Validate() error {
 	for _, e := range c.PHP.Extensions {
 		if !validName(e) {
 			return fmt.Errorf("geçersiz PHP uzantısı %q", e)
+		}
+	}
+	for _, entry := range c.Services {
+		// Yazım hatası, servis sessizce eksik kalmak yerine hemen
+		// görünsün.
+		if _, err := services.ParseSpec(entry); err != nil {
+			return err
 		}
 	}
 	if c.Mail.Host != "" && !validDomain(c.Mail.Host) {

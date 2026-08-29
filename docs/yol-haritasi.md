@@ -21,6 +21,7 @@
 | Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
 | Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
 | HTML postayı `srcdoc`'lu sandbox iframe'de göstermek yeter | **`srcdoc` belgesi üst sayfanın CSP'sini devralıyor** | Üst sayfanın ilkesinde satır içi betik açık olduğu için posta HTML'ine de betik izni geçiyordu; koruma yalnız `sandbox` özniteliğine kalmıştı. Gövde artık kendi katı ilkesini taşıyan ayrı bir uç noktadan sunuluyor. Gerçek Chromium'da bulundu, testler kaçırmıştı |
+| Denetlenen sürece durdurma sinyali göndermek yeter | **Sarmalayıcı komutlarda torun süreç ayakta kalıyor** | `sh -c`, `npm run dev` gibi komutlarda sinyal yalnız sarmalayıcıya gidiyordu; torun boruları açık tuttuğu için `cmd.Wait()` dönmüyor ve kapanış iki kez `StopTimeout` sürüyordu (Ctrl+C sonrası 20 saniye). Sinyal artık süreç ağacına ve SIGINT yerine SIGTERM ile gidiyor — POSIX, arka plana atılmış komutların SIGINT'i yok saymasını şart koşuyor. Kapanış 1,5 saniye |
 | Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
@@ -431,7 +432,11 @@ birlikte ele alınacak.
 - İsteğe bağlı gerçek röle (bir projede gerçekten posta göndermek gerekirse,
   açıkça izin verilen alan adlarına). ✅ Beyaz liste zorunlu, alt alan adları
   kapsanmıyor, parola yalnız ortam değişkeninden (`passwordEnv`).
-- Redis (Memurai ya da WSL), MinIO, Meilisearch, RabbitMQ bileşenleri. ⏳
+- Redis (Memurai ya da Valkey), MinIO, Meilisearch bileşenleri. ✅ `services`
+  bloğuyla projeyle birlikte açılıyor; bağlantı bilgileri süreçlere ortam
+  değişkeni olarak geçiyor. RabbitMQ ertelendi: Erlang çalışma zamanı
+  gerektiriyor ve runtime kayıt defteri olmadan kurulumu yönetilemiyor.
+  Sürüm sabitleme de (`redis@7`) aynı altyapıyı bekliyor.
 - **Kabul:** Laravel'den atılan posta 200 ms içinde arayüzde; `devbox mail api`
   ile son postanın gövdesi testten okunabiliyor.
   → **Kabul karşılandı** (`TestAPIStreamDeliversQuickly` 200 ms sınırını

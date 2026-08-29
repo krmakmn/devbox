@@ -24,6 +24,7 @@ import (
 	"github.com/krmakmn/devbox/internal/phppool"
 	"github.com/krmakmn/devbox/internal/ports"
 	"github.com/krmakmn/devbox/internal/project"
+	"github.com/krmakmn/devbox/internal/services"
 	"github.com/krmakmn/devbox/internal/supervisor"
 	"github.com/krmakmn/devbox/internal/trust"
 	"github.com/krmakmn/devbox/internal/web"
@@ -147,6 +148,10 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 
 	up.startMail(e)
 
+	if err := up.startServices(ctx); err != nil {
+		return err
+	}
+
 	if err := up.startProcesses(ctx); err != nil {
 		return err
 	}
@@ -251,6 +256,7 @@ type upSession struct {
 	mailSMTP   *mail.SMTPServer
 	cronRunner *cron.Runner
 	relayTo    []string
+	svcManager *services.Manager
 	backendURL string
 	confPath   string
 }
@@ -401,23 +407,23 @@ func (u *upSession) startProcesses(ctx context.Context) error {
 	if len(u.cfg.Processes) == 0 {
 		return nil
 	}
-	sup, err := supervisor.New(u.logger)
-	if err != nil {
+	// Denetçi yan servislerle paylaşılıyor; varsa yenisini kurup
+	// üstüne yazmıyoruz — yoksa servisler denetimsiz kalırdı.
+	if err := u.ensureSupervisor(); err != nil {
 		return err
 	}
-	u.sup = sup
 
 	for name, command := range u.cfg.Processes {
 		parts, err := splitArgs(command)
 		if err != nil || len(parts) == 0 {
 			return fmt.Errorf("%s süreci çözümlenemedi: %q", name, command)
 		}
-		svc, err := sup.Add(supervisor.Config{
+		svc, err := u.sup.Add(supervisor.Config{
 			Name:    name,
 			Exec:    parts[0],
 			Args:    parts[1:],
 			WorkDir: u.cfg.Dir(),
-			Env:     envList(u.mailEnv()),
+			Env:     envList(u.projectEnv()),
 		})
 		if err != nil {
 			return err
@@ -486,11 +492,14 @@ func (u *upSession) startMail(e *edge.Edge) {
 	e.Handle(u.cfg.MailHost(), &mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()})
 }
 
-// mailEnv, yakalayıcı çalışıyorsa süreçlere verilecek posta ayarlarını
-// döner. Kullanıcının devbox.yaml'da yazdığı değer üste yazılmıyor:
-// açıkça yazılmış bir ayarı sessizce değiştirmek en can sıkıcı davranış.
-func (u *upSession) mailEnv() map[string]string {
-	env := make(map[string]string, len(u.cfg.Env)+4)
+// projectEnv, süreçlere ve zamanlanmış görevlere verilecek ortam
+// değişkenlerini toplar: posta yakalayıcı ve yan servisler.
+//
+// Kullanıcının devbox.yaml'da yazdığı değer en sona konuyor, yani üste
+// yazılmıyor: açıkça yazılmış bir ayarı sessizce değiştirmek en can
+// sıkıcı davranış.
+func (u *upSession) projectEnv() map[string]string {
+	env := make(map[string]string, len(u.cfg.Env)+8)
 	if u.mailSMTP != nil {
 		host, port, err := net.SplitHostPort(u.mailSMTP.ListenAddr())
 		if err == nil {
@@ -499,10 +508,60 @@ func (u *upSession) mailEnv() map[string]string {
 			env["MAIL_PORT"] = port
 		}
 	}
+	if u.svcManager != nil {
+		for k, v := range u.svcManager.Env() {
+			env[k] = v
+		}
+	}
 	for k, v := range u.cfg.Env {
 		env[k] = v
 	}
 	return env
+}
+
+// ensureSupervisor, denetçiyi bir kez kurar.
+func (u *upSession) ensureSupervisor() error {
+	if u.sup != nil {
+		return nil
+	}
+	sup, err := supervisor.New(u.logger)
+	if err != nil {
+		return err
+	}
+	u.sup = sup
+	return nil
+}
+
+// startServices, devbox.yaml'daki yan servisleri ayağa kaldırır.
+//
+// Servisler süreçlerden önce başlıyor: kuyruk işçisi Redis'i hazır
+// bulmalı, aksi hâlde açılışta bağlanamayıp yeniden başlatma döngüsüne
+// giriyor.
+func (u *upSession) startServices(ctx context.Context) error {
+	if len(u.cfg.Services) == 0 {
+		return nil
+	}
+	if err := u.ensureSupervisor(); err != nil {
+		return err
+	}
+
+	manager := &services.Manager{
+		Root:       filepath.Join(paths.DataDir(), "services", u.cfg.Name),
+		Supervisor: u.sup,
+		Alloc:      u.alloc,
+		Logger:     u.logger,
+	}
+	for _, entry := range u.cfg.Services {
+		spec, err := services.ParseSpec(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := manager.Start(ctx, spec); err != nil {
+			return err
+		}
+	}
+	u.svcManager = manager
+	return nil
 }
 
 // startCron, devbox.yaml'daki zamanlanmış görevleri başlatır.
@@ -513,7 +572,7 @@ func (u *upSession) startCron(ctx context.Context) error {
 	runner := &cron.Runner{
 		Logger:  u.logger,
 		WorkDir: u.cfg.Dir(),
-		Env:     envList(u.mailEnv()),
+		Env:     envList(u.projectEnv()),
 	}
 	for i, entry := range u.cfg.Cron {
 		schedule, err := cron.Parse(entry.Schedule)
@@ -577,8 +636,17 @@ func (u *upSession) printSummary() {
 	if len(u.relayTo) > 0 {
 		fmt.Printf("  röle      : gerçek gönderim açık → %s\n", strings.Join(u.relayTo, ", "))
 	}
+	if u.svcManager != nil {
+		for _, svc := range u.svcManager.Started() {
+			fmt.Printf("  servis    : %s\n", svc.Summary())
+		}
+	}
 	if u.sup != nil {
 		for _, s := range u.sup.Status() {
+			// Yan servisler yukarıda kendi satırlarında listelendi.
+			if strings.HasPrefix(s.Name, "servis-") {
+				continue
+			}
 			fmt.Printf("  süreç     : %s (%s)\n", s.Name, s.State)
 		}
 	}

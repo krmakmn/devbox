@@ -424,7 +424,11 @@ func (s *Service) shutdown(cmd *exec.Cmd, exited <-chan error) {
 	if cmd.Process == nil {
 		return
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err == nil {
+	// Sinyal sürecin kendisine değil, ağacına gidiyor. Yapılandırmadaki
+	// komutlar çoğu zaman sarmalayıcı ("sh -c ...", "npm run dev"); yalnız
+	// sarmalayıcıya sinyal göndermek asıl işi yapan torunu ayakta
+	// bırakıyor ve o boruları açık tuttuğu için cmd.Wait() dönmüyor.
+	if err := proc.TerminateTree(cmd); err == nil {
 		select {
 		case <-exited:
 			return
@@ -436,7 +440,7 @@ func (s *Service) shutdown(cmd *exec.Cmd, exited <-chan error) {
 
 func (s *Service) killAndWait(cmd *exec.Cmd, exited <-chan error) {
 	if cmd.Process != nil {
-		cmd.Process.Kill()
+		proc.KillTree(cmd)
 	}
 	select {
 	case <-exited:

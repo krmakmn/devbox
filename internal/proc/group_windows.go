@@ -5,6 +5,7 @@ package proc
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -130,4 +131,34 @@ func (g *groupImpl) close() error {
 	// ama bu yol eşzamanlı ve dönüş değeri denetlenebilir.
 	procTerminateJobObject.Call(uintptr(g.job), 1)
 	return syscall.CloseHandle(g.job)
+}
+
+// terminateTree, Windows'ta desteklenmiyor.
+//
+// Süreç grubuna taşınabilir bir "nazikçe dur" sinyali yok:
+// GenerateConsoleCtrlEvent bir konsol oturumu gerektiriyor ve DevBox'ın
+// başlattığı süreçler HideWindow ile konsolsuz çalışıyor. Çağıran bu
+// hatayı görüp doğrudan killTree'ye geçiyor.
+func terminateTree(cmd *exec.Cmd) error {
+	return fmt.Errorf("proc: Windows'ta süreç grubuna sinyal gönderilemiyor")
+}
+
+// killTree, süreci ve tüm alt süreçlerini öldürür.
+//
+// taskkill /T, süreç ağacını üst-süreç kimliğinden yürüyerek kapatıyor;
+// Windows'ta halihazırda çalışan torunları kapsayan taşınabilir tek yol
+// bu. (Yeni bir iş nesnesi kurmak yalnız atamadan sonra doğan süreçleri
+// kapsardı — yani asıl sorunu, zaten doğmuş torunları çözmezdi.)
+// taskkill.exe her Windows kurulumunda var; yine de bulunamazsa sürecin
+// kendisi öldürülüyor.
+func killTree(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	kill := exec.Command("taskkill.exe", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+	kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := kill.Run(); err != nil {
+		return cmd.Process.Kill()
+	}
+	return nil
 }

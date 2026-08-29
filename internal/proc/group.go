@@ -51,3 +51,30 @@ func (g *Group) Add(cmd *exec.Cmd) error {
 func (g *Group) Close() error {
 	return g.impl.close()
 }
+
+// TerminateTree, sürece ve ondan doğan tüm alt süreçlere nazikçe durma
+// isteği gönderir.
+//
+// Neden yalnız sürecin kendisi yetmiyor: yapılandırmadaki komutlar çoğu
+// zaman bir sarmalayıcı oluyor — "sh -c ...", "npm run dev", "php artisan
+// queue:work". Sarmalayıcıya sinyal göndermek asıl işi yapan torunu
+// duyurmuyor; sarmalayıcı ölse bile torun ayakta kalıyor ve boruları açık
+// tuttuğu için cmd.Wait() dönmüyor. Sonuç: Ctrl+C'den sonra saniyelerce
+// süren, "takıldı mı?" dedirten bir kapanış.
+//
+// Unix'te sinyal SIGINT değil SIGTERM: POSIX, iş denetimi kapalıyken arka
+// plana atılmış komutların SIGINT'i yok saymasını şart koşuyor, yani
+// "sh -c 'işçi &'" gibi bir komutta asıl süreç SIGINT'ten etkilenmiyor.
+// SIGTERM böyle bir istisnaya sahip değil ve servisler için zaten
+// alışılmış durdurma sinyali.
+//
+// Windows'ta süreç grubuna taşınabilir bir sinyal yok; orada bu çağrı
+// desteklenmiyor hatası döner ve çağıran doğrudan KillTree'ye geçer.
+func TerminateTree(cmd *exec.Cmd) error {
+	return terminateTree(cmd)
+}
+
+// KillTree, süreci ve tüm alt süreçlerini öldürür.
+func KillTree(cmd *exec.Cmd) error {
+	return killTree(cmd)
+}

@@ -37,7 +37,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            nginx-light apache2 php-cli postgresql mariadb-server
+            nginx-light apache2 php-cli postgresql mariadb-server redis-server
 
       - name: Biçim denetimi
         shell: bash
