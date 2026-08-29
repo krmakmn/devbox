@@ -359,3 +359,42 @@ func TestProxyRejectsBadTargets(t *testing.T) {
 		}
 	}
 }
+
+// Canlı denemede çıkan hata: takma adlar için tek bir ters vekil işleyicisi
+// gerekiyor. Bir Edge kurup içine tek yönlendirme koymak, o Edge'in kendi
+// host eşleşmesini ikinci kez çalıştırması demek; dıştaki tablo isteği
+// içtekine veriyor, içteki takma adı tanımıyor ve 404 dönüyordu.
+func TestProxyHandlerServesAnyHost(t *testing.T) {
+	be := backend(t, "arka")
+	handler, err := ProxyHandler("magaza.test", be.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e := New()
+	for _, host := range []string{"magaza.test", "www.magaza.test", "admin.magaza.test"} {
+		e.Handle(host, handler)
+	}
+
+	for _, host := range []string{"magaza.test", "www.magaza.test", "admin.magaza.test"} {
+		resp, body := get(t, e, host, "/")
+		if resp.StatusCode != 200 {
+			t.Errorf("%s: durum %d, beklenen 200 — takma ad yönlendirilmiyor", host, resp.StatusCode)
+		}
+		if !strings.Contains(body, "arka uç=arka") {
+			t.Errorf("%s: istek arka uca ulaşmadı: %s", host, body)
+		}
+		// Özgün Host korunmalı; sanal sunucu eşleşmesi buna bağlı.
+		if !strings.Contains(body, "host="+host) {
+			t.Errorf("%s: Host korunmadı: %s", host, body)
+		}
+	}
+}
+
+func TestProxyHandlerRejectsBadTargets(t *testing.T) {
+	for _, target := range []string{"", "ftp://x", "://bozuk", "http://"} {
+		if _, err := ProxyHandler("a.test", target, nil); err == nil {
+			t.Errorf("geçersiz hedef kabul edildi: %q", target)
+		}
+	}
+}

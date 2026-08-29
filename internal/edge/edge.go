@@ -72,18 +72,34 @@ func (e *Edge) Handle(host string, h http.Handler) {
 // Proxy, bir host adını başka bir adreste çalışan sunucuya bağlar
 // (Apache, Nginx, Node, konteyner...).
 func (e *Edge) Proxy(host, target string) error {
+	handler, err := ProxyHandler(host, target, e.Logger)
+	if err != nil {
+		return err
+	}
+	e.add(host, &route{host: host, handler: handler, target: target})
+	return nil
+}
+
+// ProxyHandler, tek bir hedefe ileten ters vekil işleyicisi döner.
+//
+// Yönlendirme tablosu olmadan, doğrudan bir http.Handler isteyenler için:
+// bir Edge kurup içine tek yönlendirme koymak, o Edge'in kendi host
+// eşleşmesini ikinci kez çalıştırması demek. Takma adlarla kullanıldığında
+// dıştaki tablo isteği içtekine veriyor, içteki takma adı tanımıyor ve 404
+// dönüyordu.
+func ProxyHandler(host, target string, logger *slog.Logger) (http.Handler, error) {
 	u, err := url.Parse(target)
 	if err != nil {
-		return fmt.Errorf("edge: hedef adres çözülemedi: %w", err)
+		return nil, fmt.Errorf("edge: hedef adres çözülemedi: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("edge: hedef http ya da https olmalı: %q", target)
+		return nil, fmt.Errorf("edge: hedef http ya da https olmalı: %q", target)
 	}
 	if u.Host == "" {
-		return fmt.Errorf("edge: hedefte ana makine yok: %q", target)
+		return nil, fmt.Errorf("edge: hedefte ana makine yok: %q", target)
 	}
 
-	proxy := &httputil.ReverseProxy{
+	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
 			// Özgün Host'u koruyoruz: Apache ve Nginx sanal sunucu
@@ -99,15 +115,15 @@ func (e *Edge) Proxy(host, target string) error {
 				pr.Out.Header.Set("X-Forwarded-Proto", "https")
 			}
 		},
-		ErrorHandler: e.proxyError(host, target),
-	}
-	e.add(host, &route{host: host, handler: proxy, target: target})
-	return nil
+		ErrorHandler: proxyErrorHandler(host, target, logger),
+	}, nil
 }
 
-func (e *Edge) proxyError(host, target string) func(http.ResponseWriter, *http.Request, error) {
+func proxyErrorHandler(host, target string, logger *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
-		e.logf("%s → %s ulaşılamıyor: %v", host, target, err)
+		if logger != nil {
+			logger.Warn(fmt.Sprintf("%s → %s ulaşılamıyor: %v", host, target, err), "bileşen", "edge")
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
 		// Çıplak bir 502 yerine ne olduğunu söyleyen bir sayfa: arka ucun

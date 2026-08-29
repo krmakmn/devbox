@@ -72,6 +72,10 @@ func run(args []string) error {
 		return runLogs(args[1:])
 	case "privileged":
 		return runPrivileged(args[1:])
+	case "init":
+		return runInit(args[1:])
+	case "up":
+		return runUp(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -88,6 +92,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `devbox — Windows yerel geliştirme ortamı
 
 Kullanım:
+  devbox init                 projeyi tanı ve devbox.yaml üret
+  devbox up                   devbox.yaml'ı okuyup projeyi ayağa kaldır
   devbox serve [seçenekler]   bir dizini PHP ile sun
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı

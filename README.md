@@ -3,10 +3,11 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 2 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 3 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
-> hazır. Faz 2'de Apache ve Nginx sürücüleri yazıldı.
+> hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) tamamlandı.
+> Faz 3'te `devbox.yaml` ve `devbox up` çalışıyor.
 >
 > Not: NRPT, Firefox NSS ve Windows onay penceresi yolları CI'nin
 > kapsayamadığı yerler — gerçek bir Windows makinesinde elle denenmedi.
@@ -33,6 +34,7 @@ Bunun arkasında duran parçalar:
 | `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
 | `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
 | `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
+| `internal/project` | `devbox.yaml` okuma ve çerçeve algılama (Laravel, WordPress, Symfony, Next.js, Django) |
 | `internal/webserver` | Apache ve Nginx için vhost üretimi, söz dizimi ön denetimi, geri alma |
 | `internal/ports` | Port tahsisi: Hyper-V rezervasyonları, IIS farkındalığı, açıklayıcı hata |
 | `internal/phpini` | Proje başına php.ini katmanlama ve Xdebug anahtarı |
@@ -78,6 +80,16 @@ meşru bir dağıtımda böyle bir girdi olmaz.
 > **uzaktan manifest reddediliyor**, yerel dosyayla çalışılıyor. Fail-closed
 > davranış bilinçli; doğrulanmamış bir liste istenmeyen bir ikilinin
 > kurulmasına yol açar.
+
+`devbox.yaml` tarafında: ortam makineye değil **depoya** yazılıyor. Ekip
+arkadaşı klonlayıp `devbox up` diyor; aynı PHP sürümü, aynı uzantılar, aynı web
+sunucusu, aynı alan adı geliyor. `devbox init` projeyi tanıyıp makul
+varsayılanları öneriyor — WordPress için Apache seçiyor, çünkü kalıcı bağlantılar
+`.htaccess` yeniden yazma kurallarına dayanıyor; Next.js için `proxy` seçip
+geliştirme sunucusunu `processes`'e ekliyor.
+
+Bilinmeyen alanlar hata veriyor: `worker: 4` yazan biri (doğrusu `workers`)
+sessizce varsayılanla çalışmak yerine yazım hatasını hemen görüyor.
 
 Web sunucusu tarafında: DevBox PHP'yi kendi de sunabiliyor, ama gerçek projeler
 `.htaccess`'e, nginx yeniden yazma kurallarına ve özel `location` bloklarına
@@ -190,7 +202,12 @@ Ayrıntı, kabul kriterleri ve risk kaydı: [docs/yol-haritasi.md](docs/yol-hari
 
 ## Geliştirme
 
-Go 1.23+ yeterli; dış bağımlılık yok.
+Go 1.23+ yeterli. Tek dış bağımlılık `gopkg.in/yaml.v3` — `devbox.yaml` için.
+YAML'i elle ayrıştırmak ilk bakışta mümkün görünüyor (bize yalnız iç içe
+eşlemeler ve dizeler lazım) ama biçimin yüzeyi geniş: çok satırlı dizeler,
+çapalar, alıntılama kuralları, girinti incelikleri. Her biri kullanıcının yazıp
+da çalışmayacağı bir şey. Tek, olgun ve kendi bağımlılığı olmayan bir kütüphane
+bu riskten ucuz.
 
 ```bash
 go test ./... -race     # testler (gerçek süreç başlatan bütünleşme testleri dahil)
