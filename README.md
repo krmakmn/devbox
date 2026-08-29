@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/procstat` | Süreçlerin bellek ve işlemci kullanımı (Linux /proc, Windows psapi) |
 | `internal/scaffold` | Proje şablonları: çerçevenin kendi kurucusunu çağırır |
 | `internal/projects` | Proje kaydı ve projeleri çekirdek süreç üzerinden çalıştırma |
 | `internal/services` | Yan servisler: Redis/Valkey, Meilisearch, MinIO — port tahsisi, proje başına veri dizini |
@@ -179,6 +180,13 @@ oturum var: `devbox ui` adresi `?jeton=…` ile açıyor, sunucu çerezi kurup j
 adrese yönlendiriyor — jeton adres çubuğunda ve geçmişte kalmıyor. Çerezin
 getirdiği CSRF riski üç katmanla kapatılıyor: `SameSite=Strict`, durum değiştiren
 isteklerde `Origin` denetimi ve zaten var olan `Host` denetimi.
+
+Kaynak göstergeleri sürecin **kendisini** ölçüyor, ağacını değil: panelde
+"(ana süreç)" diye etiketli. Ağaç toplamı Linux'ta /proc'u taramak, Windows'ta
+anlık görüntü API'siyle bütün süreç listesini gezmek demek — ikincisi bu ortamda
+çalıştırılıp doğrulanamayacak hatırı sayılır miktarda syscall kodu. İşlemci
+tarafında API birikmiş süreyi veriyor, oranı iki yoklama arasındaki farktan
+arayüz hesaplıyor; böylece ölçüm paketi durum tutmuyor.
 
 Şablon tarafında: `devbox new laravel magaza` bir "Laravel şablonu" açmıyor,
 **Laravel'in kendi kurucusunu** çağırıyor (`composer create-project`). Şablon

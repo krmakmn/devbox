@@ -472,7 +472,12 @@ birlikte ele alınacak.
     sonradan bu adrese bakan ince bir sarmalayıcı olarak eklenebilir.
   - Sürüm değiştirici runtime kayıt defterine bağlı; o altyapı (imzalı manifest)
     henüz yok. ⏳
-- Sistem tepsisi, oturum açılışında başlatma, kaynak kullanımı göstergeleri.
+- Kaynak kullanımı göstergeleri ✅ (panelde ve `devbox ps`'te bellek/işlemci;
+  ölçüm ana sürecin kendisi, ağaç toplamı değil — bkz. `internal/procstat`).
+  Sistem tepsisi ve oturum açılışında başlatma ⏳: ikisi de Windows'a özgü ve bu
+  ortamda çalıştırılıp doğrulanamıyor (tepsi bir GUI araç zinciri, otomatik
+  başlatma bir kayıt defteri anahtarı istiyor). Gerçek Windows denemesiyle
+  birlikte yapılmalı.
 - Proje şablonları (`devbox new laravel magaza`). ✅ Çerçevenin kendi kurucusu
   çağrılıyor (composer create-project, npm create, create-next-app, wp core
   download); düz PHP ve statik site için iki dosyalık kendi şablonumuz. Kurulan

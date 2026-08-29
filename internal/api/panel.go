@@ -86,6 +86,7 @@ const panelHTML = `<!doctype html>
   .saglik { display:flex; gap:14px; flex-wrap:wrap; padding:8px 16px;
             border-bottom:1px solid var(--kenar); color:var(--soluk); font-size:12px; }
   .saglik b { color:var(--metin); font-weight:600; }
+  .olcum { color:var(--soluk); font-size:12px; font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
@@ -114,8 +115,34 @@ const panelHTML = `<!doctype html>
   var saglik = document.getElementById('saglik');
   var secili = null;
   var akis = null;
+  // İşlemci oranı iki yoklama arasındaki farktan çıkıyor; API birikmiş
+  // süreyi veriyor, durumu burada tutuyoruz.
+  var oncekiOlcum = {};
   var satirlar = [];
   var suzgecMetni = '';
+
+  function boyut(bayt) {
+    if (!bayt) return '';
+    var birimler = ['B', 'KB', 'MB', 'GB'];
+    var i = 0, d = bayt;
+    while (d >= 1024 && i < birimler.length - 1) { d /= 1024; i++; }
+    return (d >= 10 || i === 0 ? Math.round(d) : d.toFixed(1)) + ' ' + birimler[i];
+  }
+
+  // islemciOrani, birikmiş işlemci süresinden iki yoklama arasındaki
+  // kullanımı hesaplar. İlk ölçümde karşılaştıracak bir şey olmadığı için
+  // boş dönüyor — sıfır yazmak yanıltıcı olurdu.
+  function islemciOrani(ad, p) {
+    var simdi = Date.now() / 1000;
+    var onceki = oncekiOlcum[ad];
+    oncekiOlcum[ad] = { cpu: p.cpuSeconds || 0, an: simdi };
+    if (!onceki || !p.running) return '';
+    var gecen = simdi - onceki.an;
+    if (gecen <= 0) return '';
+    var oran = ((p.cpuSeconds || 0) - onceki.cpu) / gecen * 100;
+    if (oran < 0) return '';
+    return (oran < 10 ? oran.toFixed(1) : Math.round(oran)) + '% işlemci';
+  }
 
   function kacar(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -155,6 +182,14 @@ const panelHTML = `<!doctype html>
         ? '<button data-eylem="stop" data-ad="' + kacar(p.name) + '">Durdur</button>'
         : '<button data-eylem="start" data-ad="' + kacar(p.name) + '"' +
           (p.missing || p.error ? ' disabled' : '') + '>Başlat</button>';
+      var olcum = [];
+      if (p.running) {
+        var cpu = islemciOrani(p.name, p);
+        if (p.rss) olcum.push(boyut(p.rss));
+        if (cpu) olcum.push(cpu);
+      } else {
+        islemciOrani(p.name, p);
+      }
       return '<div class="proje" data-ad="' + kacar(p.name) + '">' +
         '<div class="ust"><span class="nokta ' + sinif + '"></span>' +
         '<span class="ad">' + kacar(p.name) + '</span>' +
@@ -162,6 +197,9 @@ const panelHTML = `<!doctype html>
         '<div class="alan">' + (p.domain ? 'https://' + kacar(p.domain) : '') +
         (p.restarts ? ' · ' + p.restarts + ' yeniden başlatma' : '') + '</div>' +
         '<div class="yol">' + kacar(p.dir) + '</div>' +
+        (olcum.length ? '<div class="olcum">' + kacar(olcum.join(' · ')) +
+          ' <span title="Ölçüm devbox up sürecinin kendisi; php-cgi işçileri ' +
+          've veritabanı ayrı süreçler">(ana süreç)</span></div>' : '') +
         (p.error ? '<div class="alan" style="color:var(--kotu)">' + kacar(p.error) + '</div>' : '') +
         '</div>';
     }).join('');

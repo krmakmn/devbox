@@ -16,6 +16,7 @@ import (
 
 	"github.com/krmakmn/devbox/internal/api"
 	"github.com/krmakmn/devbox/internal/paths"
+	"github.com/krmakmn/devbox/internal/procstat"
 	"github.com/krmakmn/devbox/internal/projects"
 	"github.com/krmakmn/devbox/internal/supervisor"
 )
@@ -180,14 +181,20 @@ func runPS(args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SERVİS\tDURUM\tPID\tSÜRE\tYENİDEN\tHAZIRLIK")
+	fmt.Fprintln(w, "SERVİS\tDURUM\tPID\tBELLEK\tSÜRE\tYENİDEN\tHAZIRLIK")
 	for _, s := range services {
-		pid := "-"
+		pid, bellek := "-", "-"
 		if s.PID != 0 {
 			pid = fmt.Sprint(s.PID)
+			// Çekirdek süreç ve CLI aynı makinede olduğu için ölçümü
+			// buradan okuyabiliyoruz; API'ye yeni bir alan eklemeye
+			// gerek yok.
+			if usage, err := procstat.Read(s.PID); err == nil {
+				bellek = humanBytes(usage.RSS)
+			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
-			s.Name, s.State, pid,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+			s.Name, s.State, pid, bellek,
 			time.Since(s.Since).Round(time.Second), s.Restarts, s.Ready)
 	}
 	return w.Flush()
@@ -285,4 +292,18 @@ func splitArgs(command string) ([]string, error) {
 		args = append(args, current.String())
 	}
 	return args, nil
+}
+
+// humanBytes, bayt sayısını okunur biçime çevirir.
+func humanBytes(b uint64) string {
+	const birim = 1024
+	if b < birim {
+		return fmt.Sprintf("%d B", b)
+	}
+	d, exp := float64(b)/birim, 0
+	for d >= birim && exp < 2 {
+		d /= birim
+		exp++
+	}
+	return fmt.Sprintf("%.1f %s", d, [...]string{"KB", "MB", "GB"}[exp])
 }

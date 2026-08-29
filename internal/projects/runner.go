@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/krmakmn/devbox/internal/procstat"
 	"github.com/krmakmn/devbox/internal/supervisor"
 )
 
@@ -80,6 +81,14 @@ type Status struct {
 
 	// ServiceName, günlük uç noktalarında kullanılacak ad.
 	ServiceName string `json:"serviceName"`
+
+	// RSS ve CPUSeconds, "devbox up" sürecinin kaynak kullanımı.
+	//
+	// Yalnız o süreç: php-cgi işçileri, veritabanı ve web sunucusu ayrı
+	// süreçler ve buraya girmiyor (bkz. internal/procstat). Arayüz de
+	// böyle etiketliyor.
+	RSS        uint64  `json:"rss,omitempty"`
+	CPUSeconds float64 `json:"cpuSeconds,omitempty"`
 }
 
 // Statuses, tüm projelerin durumunu döner.
@@ -120,6 +129,16 @@ func (r *Runner) status(p Project) Status {
 	st.Since = s.Since
 	st.Restarts = s.Restarts
 	st.Running = s.PID != 0
+
+	if st.Running {
+		// Ölçüm alınamazsa (süreç az önce öldü, işletim sistemi
+		// desteklemiyor) alan boş kalıyor: durum bilgisi bir ölçüm
+		// hatası yüzünden kaybolmamalı.
+		if usage, err := procstat.Read(s.PID); err == nil {
+			st.RSS = usage.RSS
+			st.CPUSeconds = usage.CPUSeconds
+		}
+	}
 	return st
 }
 
