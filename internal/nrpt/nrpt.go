@@ -135,12 +135,21 @@ func removeScript(namespace, comment string) string {
 //
 // Select-Object ile doğrudan ilerlemek yerine her alan tek tek düz tipe
 // çevriliyor. Sebebi gerçek bir kusur: Windows koşucusunda "devbox dns
-// status" kuralı buluyor ama sunucu listesini boş gösteriyordu, çünkü
-// Get-DnsClientNrptRule'un döndürdüğü CIM nesnesinin NameServers alanı
-// ConvertTo-Json'a null olarak düşüyor. @(...) ve "$_" ile zorlayınca
-// serileştirme düz bir dizeye dizisine iniyor.
+// status" kuralı buluyor ama sunucu listesini boş gösteriyordu.
 //
-// -Depth de açıkça veriliyor: varsayılan 2, iç içe dizilerde sessizce
+// Ham çıktı sebebi tam olarak gösterdi: Get-DnsClientNrptRule'un
+// NameServers alanı dize değil, System.Net.IPAddress nesnesi. Eski betik
+// bunu olduğu gibi serileştiriyordu:
+//
+//	"NameServers":{"Address":889192575,"AddressFamily":2,...,
+//	               "IPAddressToString":"127.0.0.53"}
+//
+// Bir nesne ne []string'e ne string'e çözülür; parseRules sessizce boş
+// liste döndürüyordu. @(...) ve "$_" ile zorlayınca alan düz bir dize
+// dizisine iniyor. Namespace'in sorunsuz çalışması da bunu doğruluyor:
+// o zaten string[] geliyor.
+//
+// -Depth açıkça veriliyor: varsayılan 2, iç içe dizilerde sessizce
 // kırpıyor.
 func listScript() string {
 	return "$ErrorActionPreference='Stop'; " +

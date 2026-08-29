@@ -139,22 +139,15 @@ jobs:
 
           # --- 4) NRPT kuralını ekle ---
           .\devbox.exe dns install
-          .\devbox.exe dns status
 
-          # "dns status" sunucu listesini boş gösteriyordu; iki betik
-          # biçiminin ham çıktısını yan yana koyup hangisinin null
-          # döndürdüğünü kanıta bağlıyoruz. powershell.exe (5.1) bilerek:
-          # devbox de onu çağırıyor, pwsh 7 değil.
-          Write-Host "--- eski biçim (Select-Object) ---"
-          powershell.exe -NoProfile -NonInteractive -Command "Get-DnsClientNrptRule | Select-Object Namespace,NameServers,Comment | ConvertTo-Json -Compress" | Write-Host
-          Write-Host "--- yeni biçim (düz tipe zorlanmış) ---"
-          powershell.exe -NoProfile -NonInteractive -Command "Get-DnsClientNrptRule | ForEach-Object { [pscustomobject]@{Namespace=@(`$_.Namespace | ForEach-Object { \"`$_\" });NameServers=@(`$_.NameServers | ForEach-Object { \"`$_\" });Comment=\"`$(`$_.Comment)\"} } | ConvertTo-Json -Depth 4 -Compress" | Write-Host
-
-          # devbox'ın kendi görüşü de sunucuyu göstermeli; boş satır
-          # kusurun geri geldiği anlamına gelir.
+          # devbox'ın kendi görüşü de sunucuyu göstermeli. Bu satır bir
+          # kusuru kilitliyor: Get-DnsClientNrptRule'un NameServers alanı
+          # dize değil IPAddress nesnesi geliyor ve eski betikte sessizce
+          # boş listeye düşüyordu. Boş bir sunucu listesi kusurun geri
+          # geldiği anlamına gelir.
           $durum = .\devbox.exe dns status | Out-String
+          Write-Host $durum
           if ($durum -notmatch 'NRPT\s*:\s*\.test\s*→\s*127\.0\.0\.53') {
-            Write-Host $durum
             throw "devbox dns status NRPT sunucusunu göstermiyor"
           }
           Write-Host "✓ devbox dns status sunucuyu doğru gösteriyor"

@@ -36,6 +36,11 @@ type Config struct {
 	// bağlı olduğu için ayrı bir adres kullanmak, 127.0.0.1:53'ü tutan
 	// başka bir şeyle (Docker Desktop'ın vpnkit'i, ICS, kurumsal DNS
 	// ajanları) çakışmayı baştan önlüyor.
+	//
+	// Bu, Windows'ta da doğrulandı: 127/8'in yalnız 127.0.0.1'i atanmış
+	// olduğu için 127.0.0.53'e bağlanmak başarısız olabilirdi. Duman
+	// testi DevBox'tan bağımsız olarak ölçüyor — soket açılıyor ve UDP
+	// gerçekten teslim ediliyor.
 	Addr string
 
 	// Suffixes, cevap verilecek son ekler ("test" → *.test ve test).

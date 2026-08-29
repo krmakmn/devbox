@@ -126,8 +126,9 @@ func TestParseRulesRejectsGarbage(t *testing.T) {
 
 // TestListScriptDuzTipeZorluyor, gerçek Windows koşusunda çıkan bir kusuru
 // kilitliyor: "devbox dns status" kuralı buluyor ama sunucu listesini boş
-// gösteriyordu. Get-DnsClientNrptRule'un CIM nesnesi Select-Object'ten
-// geçirilip ConvertTo-Json'a verilince NameServers null'a düşüyor.
+// gösteriyordu. Get-DnsClientNrptRule'un NameServers alanı dize değil
+// IPAddress nesnesi; Select-Object'ten geçip ConvertTo-Json'a verilince
+// nesne olarak serileşiyor ve hiçbir dize biçimine çözülmüyor.
 func TestListScriptDuzTipeZorluyor(t *testing.T) {
 	script := listScript()
 
@@ -145,11 +146,15 @@ func TestListScriptDuzTipeZorluyor(t *testing.T) {
 	}
 }
 
-// TestParseRulesBosSunucu, kusurun görünen belirtisini belgeliyor: sunucu
-// alanı null gelirse kural okunuyor ama sunucusuz kalıyor. parseRules bunu
-// hata saymıyor — çözüm betikte, burada değil.
+// TestParseRulesBosSunucu, kusurun görünen belirtisini belgeliyor. Girdi
+// gerçek koşudan alındı: NameServers bir IPAddress nesnesi olarak geliyor,
+// kural okunuyor ama sunucusuz kalıyor. parseRules bunu hata saymıyor —
+// çözüm betikte, burada değil.
 func TestParseRulesBosSunucu(t *testing.T) {
-	rules, err := parseRules([]byte(`{"Namespace":[".test"],"NameServers":null,"Comment":"DevBox yerel geliştirme"}`))
+	ham := []byte(`{"Namespace":[".test"],"NameServers":{"Address":889192575,` +
+		`"AddressFamily":2,"IPAddressToString":"127.0.0.53"},` +
+		`"Comment":"DevBox yerel geliştirme"}`)
+	rules, err := parseRules(ham)
 	if err != nil {
 		t.Fatalf("beklenmeyen hata: %v", err)
 	}
