@@ -16,6 +16,7 @@ import (
 
 	"github.com/krmakmn/devbox/internal/api"
 	"github.com/krmakmn/devbox/internal/paths"
+	"github.com/krmakmn/devbox/internal/projects"
 	"github.com/krmakmn/devbox/internal/supervisor"
 )
 
@@ -80,6 +81,23 @@ devbox ps / logs onları oradan okur.
 		}
 	}
 
+	// Projeler: kayıt her zaman açılıyor, çünkü denetim paneli boş bir
+	// listeyle de anlamlı ("devbox project add" diyor).
+	registry, err := openRegistry()
+	if err != nil {
+		return err
+	}
+	exe, err := devboxExecutable()
+	if err != nil {
+		return err
+	}
+	runner := &projects.Runner{
+		Registry:   registry,
+		Supervisor: sup,
+		Executable: exe,
+		Logger:     logger,
+	}
+
 	token, err := api.LoadOrCreateToken(tokenPath())
 	if err != nil {
 		return err
@@ -88,6 +106,7 @@ devbox ps / logs onları oradan okur.
 		Token:      token,
 		Supervisor: sup,
 		Runtimes:   runtimeStore(),
+		Projects:   runner,
 		Logger:     logger,
 	})
 	if err != nil {
@@ -115,6 +134,7 @@ devbox ps / logs onları oradan okur.
 	cancel()
 
 	logger.Info("devboxd başladı", "adres", listenAddr, "servis", len(sup.Status()))
+	fmt.Printf("\n  Denetim paneli: http://%s/\n  Açmak için: devbox ui\n\n", listenAddr)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

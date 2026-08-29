@@ -24,6 +24,7 @@ import (
 	"github.com/krmakmn/devbox/internal/phppool"
 	"github.com/krmakmn/devbox/internal/ports"
 	"github.com/krmakmn/devbox/internal/project"
+	"github.com/krmakmn/devbox/internal/projects"
 	"github.com/krmakmn/devbox/internal/services"
 	"github.com/krmakmn/devbox/internal/supervisor"
 	"github.com/krmakmn/devbox/internal/trust"
@@ -171,7 +172,10 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 
 	srv := &edge.Server{Edge: e, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr, TLSConfig: store.TLSConfig()}
 
-	fmt.Printf("\n  %s hazır: https://%s\n\n", cfg.Name, cfg.Domain)
+	// Bu satır aynı zamanda çekirdek süreçle sözleşme: projects.Runner
+	// projeyi "hazır" saymak için tam olarak bunu arıyor. Metni tek bir
+	// yerde tutuyoruz ki biri değişip diğeri kalmasın.
+	fmt.Printf("\n  %s%s%s\n\n", cfg.Name, projects.ReadyLine, cfg.Domain)
 	up.printSummary()
 
 	stop := make(chan os.Signal, 1)

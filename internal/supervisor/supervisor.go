@@ -359,6 +359,12 @@ func (s *Service) spawn(ctx context.Context) (*exec.Cmd, error) {
 	// Hazır olma ölçütü yalnız bu koşunun çıktısına baksın.
 	s.logs.MarkStart()
 
+	// Halka tamponu yeniden başlatmalar boyunca yaşıyor; ayraç olmadan
+	// iki koşunun çıktısı birbirine yapışıyor ve "hangi 'hazır' satırı
+	// şimdikine ait?" sorusu cevapsız kalıyor.
+	fmt.Fprintf(s.logs, "──── %s başlatılıyor · %s ────\n",
+		s.cfg.Name, time.Now().Format("15:04:05"))
+
 	s.group.Prepare(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("supervisor: %s başlatılamadı: %w", s.cfg.Name, err)

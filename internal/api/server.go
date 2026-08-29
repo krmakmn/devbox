@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/krmakmn/devbox/internal/projects"
 	"github.com/krmakmn/devbox/internal/runtime"
 	"github.com/krmakmn/devbox/internal/supervisor"
 )
@@ -23,6 +26,7 @@ type Server struct {
 	token      string
 	supervisor *supervisor.Supervisor
 	runtimes   *runtime.Store
+	projects   *projects.Runner
 	logger     *slog.Logger
 	startedAt  time.Time
 
@@ -43,7 +47,11 @@ type Config struct {
 
 	Supervisor *supervisor.Supervisor
 	Runtimes   *runtime.Store
-	Logger     *slog.Logger
+
+	// Projects, verilirse proje uç noktaları ve denetim paneli açılır.
+	Projects *projects.Runner
+
+	Logger *slog.Logger
 }
 
 // NewServer, sunucuyu kurar ama dinlemeye başlamaz.
@@ -58,6 +66,7 @@ func NewServer(cfg Config) (*Server, error) {
 		token:      cfg.Token,
 		supervisor: cfg.Supervisor,
 		runtimes:   cfg.Runtimes,
+		projects:   cfg.Projects,
 		logger:     cfg.Logger,
 		startedAt:  time.Now(),
 	}, nil
@@ -73,8 +82,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/services/{name}/logs", s.handleServiceLogs)
 	mux.HandleFunc("GET /v1/services/{name}/logs/stream", s.handleServiceLogStream)
 	mux.HandleFunc("GET /v1/runtimes", s.handleRuntimes)
+	mux.HandleFunc("GET /v1/projects", s.handleProjects)
+	mux.HandleFunc("GET /v1/projects/{name}", s.handleProject)
+	mux.HandleFunc("POST /v1/projects/{name}/start", s.handleProjectStart)
+	mux.HandleFunc("POST /v1/projects/{name}/stop", s.handleProjectStop)
+	mux.HandleFunc("GET /", s.handleUI)
 
-	return s.requireLocalHost(s.requireToken(mux))
+	return s.requireLocalHost(s.requireAuth(mux))
 }
 
 // Start, dinlemeye başlar ve adresi döner.
@@ -107,17 +121,92 @@ func (s *Server) Close() error {
 
 // --- ara katmanlar ----------------------------------------------------------
 
-// requireToken, Authorization başlığını doğrular.
-func (s *Server) requireToken(next http.Handler) http.Handler {
+// SessionCookie, tarayıcı oturumunu taşıyan çerezin adı.
+const SessionCookie = "devbox_oturum"
+
+// requireAuth, isteğin yetkili olduğunu doğrular.
+//
+// İki yol var. Komut satırı istemcisi jetonu Authorization başlığıyla
+// gönderiyor. Tarayıcı gönderemiyor — bir sayfayı açarken başlık
+// ekleyemezsiniz — bu yüzden denetim paneli için çerez tabanlı bir oturum
+// var: "devbox ui" adresi ?jeton=... ile açıyor, sunucu çerezi kuruyor ve
+// adresi jetonsuz hâline yönlendiriyor. Jeton böylece adres çubuğunda ve
+// tarayıcı geçmişinde kalmıyor.
+//
+// # Çerezin getirdiği risk ve kapatılışı
+//
+// Çerez, tarayıcıdaki her sayfanın bu API'ye kimliği doğrulanmış istek
+// atabilmesi demek olurdu (CSRF). Üç kat var: çerez SameSite=Strict, yani
+// başka bir siteden gelen istekle gönderilmiyor; durum değiştiren
+// isteklerde Origin başlığı kendi adresimiz olmak zorunda; ve Host
+// denetimi zaten yerinde. Jeton başlığıyla gelen isteklere Origin şartı
+// uygulanmıyor: onu gönderebilen zaten jetonu okuyabilmiş demektir.
+func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
-		token, ok := strings.CutPrefix(header, "Bearer ")
-		if !ok || !tokenMatches(s.token, strings.TrimSpace(token)) {
+		if token, ok := strings.CutPrefix(header, "Bearer "); ok {
+			if tokenMatches(s.token, strings.TrimSpace(token)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "geçersiz jeton")
+			return
+		}
+
+		// Adres çubuğundan gelen ilk açılış: çerezi kur, jetonu adresten
+		// düşür.
+		if q := r.URL.Query().Get("jeton"); q != "" && r.Method == http.MethodGet {
+			if !tokenMatches(s.token, q) {
+				writeError(w, http.StatusUnauthorized, "geçersiz jeton")
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     SessionCookie,
+				Value:    s.token,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+			})
+			target := *r.URL
+			query := target.Query()
+			query.Del("jeton")
+			target.RawQuery = query.Encode()
+			http.Redirect(w, r, target.RequestURI(), http.StatusSeeOther)
+			return
+		}
+
+		cookie, err := r.Cookie(SessionCookie)
+		if err != nil || !tokenMatches(s.token, cookie.Value) {
 			writeError(w, http.StatusUnauthorized, "geçersiz ya da eksik jeton")
+			return
+		}
+		if !safeOrigin(r) {
+			writeError(w, http.StatusForbidden,
+				"beklenmeyen Origin; durum değiştiren istek yalnız denetim panelinden gelebilir")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// safeOrigin, çerezle gelen durum değiştiren isteğin kendi sayfamızdan
+// geldiğini doğrular.
+func safeOrigin(r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Tarayıcılar durum değiştiren isteklerde Origin gönderiyor;
+		// yoksa isteği tarayıcı dışı bir istemci atmış demektir ve o da
+		// jetonu başlıkla göndermeliydi.
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 // requireLocalHost, Host başlığının loopback olduğunu doğrular.
@@ -332,4 +421,78 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, ErrorResponse{Error: msg})
+}
+
+// --- proje uç noktaları -----------------------------------------------------
+
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if s.projects == nil {
+		writeJSON(w, http.StatusOK, []projects.Status{})
+		return
+	}
+	list, err := s.projects.Statuses()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
+	if s.projects == nil {
+		writeError(w, http.StatusNotFound, "proje yok")
+		return
+	}
+	st, err := s.projects.Status(r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleProjectStart(w http.ResponseWriter, r *http.Request) {
+	if s.projects == nil {
+		writeError(w, http.StatusNotFound, "proje yok")
+		return
+	}
+	// Başlatma hazır olma ölçütü yüzünden uzun sürebilir; isteğin bağlamı
+	// iptal edilirse başlatmayı da bırakıyoruz.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	st, err := s.projects.Start(ctx, r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleProjectStop(w http.ResponseWriter, r *http.Request) {
+	if s.projects == nil {
+		writeError(w, http.StatusNotFound, "proje yok")
+		return
+	}
+	st, err := s.projects.Stop(r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// handleUI, denetim panelini sunar.
+func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		writeError(w, http.StatusNotFound, "bulunamadı: "+r.URL.Path)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Panel tek dosya: dış kaynak yok, satır içi betik ve stil var.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "+
+			"img-src 'self' data:; frame-src 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	io.WriteString(w, panelHTML)
 }

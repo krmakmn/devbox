@@ -80,6 +80,10 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "project", "projects":
+		return runProject(args[1:])
+	case "ui":
+		return runUI(args[1:])
 	case "mail":
 		return runMail(args[1:])
 	case "version", "--version", "-v":
@@ -108,6 +112,8 @@ Kullanım:
   devbox db <alt komut>       veritabanı örnekleri: kur, başlat, anlık görüntü
   devbox mail <alt komut>     giden postayı yakala ve göster
   devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
+  devbox project <alt komut>  projeleri kayda ekle, listele, çıkar
+  devbox ui                   denetim panelini tarayıcıda aç
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster
   devbox logs [-f] <servis>   servisin günlüğünü göster

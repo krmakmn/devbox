@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -388,15 +389,32 @@ func TestLogBufferConcurrentWriters(t *testing.T) {
 	wg.Wait()
 }
 
+// freeAddr, gerçekten boş bir adres döner.
+//
+// Bağlanıp kapatmak yetmiyor: bıraktığımız portu başka bir süreç
+// (makinede çalışan başka bir test, bir geliştirme sunucusu) hemen
+// kapabiliyor. O zaman TCPReady daha sahte servis dinlemeye başlamadan
+// bağlanıyor ve "hazır olmayı beklemiyor" diye yanıltıcı bir hata
+// çıkıyor. Bu yüzden kapattıktan sonra adresin gerçekten bağlantı
+// reddettiğini doğruluyoruz.
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := netListen()
-	if err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 20; attempt++ {
+		ln, err := netListen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := ln.Addr().String()
+		ln.Close()
+
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err != nil {
+			return addr // kimse dinlemiyor: aradığımız bu
+		}
+		conn.Close()
 	}
-	addr := ln.Addr().String()
-	ln.Close()
-	return addr
+	t.Fatal("boş bir adres bulunamadı")
+	return ""
 }
 
 // Gerçek bir hatanın testi: günlük tamponu yeniden başlatmalar arasında

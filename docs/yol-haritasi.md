@@ -22,6 +22,7 @@
 | Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
 | HTML postayı `srcdoc`'lu sandbox iframe'de göstermek yeter | **`srcdoc` belgesi üst sayfanın CSP'sini devralıyor** | Üst sayfanın ilkesinde satır içi betik açık olduğu için posta HTML'ine de betik izni geçiyordu; koruma yalnız `sandbox` özniteliğine kalmıştı. Gövde artık kendi katı ilkesini taşıyan ayrı bir uç noktadan sunuluyor. Gerçek Chromium'da bulundu, testler kaçırmıştı |
 | Denetlenen sürece durdurma sinyali göndermek yeter | **Sarmalayıcı komutlarda torun süreç ayakta kalıyor** | `sh -c`, `npm run dev` gibi komutlarda sinyal yalnız sarmalayıcıya gidiyordu; torun boruları açık tuttuğu için `cmd.Wait()` dönmüyor ve kapanış iki kez `StopTimeout` sürüyordu (Ctrl+C sonrası 20 saniye). Sinyal artık süreç ağacına ve SIGINT yerine SIGTERM ile gidiyor — POSIX, arka plana atılmış komutların SIGINT'i yok saymasını şart koşuyor. Kapanış 1,5 saniye |
+| Testin bağlanıp kapattığı port boş kalır | **Başka bir süreç portu hemen kapabiliyor** | TCPReady testi, sahte servis dinlemeye başlamadan bağlanıp "hazır olmayı beklemiyor" diye yanıltıcı bir hata veriyordu. Makinede paralel çalışan başka süreçler varken ortaya çıktı. freeAddr artık adresin gerçekten bağlantı reddettiğini doğruluyor |
 | Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
@@ -460,8 +461,16 @@ birlikte ele alınacak.
   pikselleri de `ERR_BLOCKED_BY_CSP` ile düşüyor.
 
 ### Faz 6 — GUI ve geliştirici deneyimi · 6 hafta
-- Tauri masaüstü uygulaması: proje listesi, tek tık başlat/durdur, sürüm
-  değiştirici, canlı log görüntüleyici (filtre + arama), sağlık paneli.
+- ~~Tauri masaüstü uygulaması~~ → **çekirdek sürecin sunduğu denetim paneli**:
+  proje listesi, tek tık başlat/durdur, canlı log görüntüleyici (filtre + arama
+  + vurgulama), sağlık paneli. ✅ `devbox ui`
+  - **Neden Tauri değil:** Tauri bir Rust derleme zinciri ve platform başına bir
+    web görünümü kütüphanesi istiyor; Windows'ta derlenip çalıştırılmadan
+    doğruluğu gösterilemez. Panel aynı API'yi kullanan tek dosyalık bir sayfa
+    olduğu için gerçek bir tarayıcıda sınanabiliyor. Tauri/WebView2 kabuğu
+    sonradan bu adrese bakan ince bir sarmalayıcı olarak eklenebilir.
+  - Sürüm değiştirici runtime kayıt defterine bağlı; o altyapı (imzalı manifest)
+    henüz yok. ⏳
 - Sistem tepsisi, oturum açılışında başlatma, kaynak kullanımı göstergeleri.
 - Proje şablonları (`devbox new laravel magaza`), içe/dışa aktarma.
 - VS Code eklentisi: durum çubuğu, hızlı komutlar, Xdebug tek tıkla.

@@ -3,13 +3,15 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 5 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 6 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
 > hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
 > kod tarafı (`devbox.yaml`, çerçeve algılama, `devbox up`/`down`) tamamlandı.
-> Faz 4'te veritabanı örnekleri çalışıyor. Faz 5'te posta yakalayıcı ve
-> zamanlanmış görevler `devbox up`'a bağlandı.
+> Faz 4'te veritabanı örnekleri, Faz 5'te posta yakalayıcı, zamanlanmış
+> görevler ve yan servisler çalışıyor. Faz 6'da proje kaydı ve denetim
+> paneli geldi: `devbox ui` ile projeler listeleniyor, tek tıkla başlayıp
+> duruyor, günlükler canlı akıyor.
 >
 > **MVP'nin kabul kriteri henüz karşılanmadı:** "temiz bir Windows'ta
 > `devbox up` → tarayıcıda uyarısız `https://`". NRPT, Firefox NSS, UAC ve
@@ -51,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/projects` | Proje kaydı ve projeleri çekirdek süreç üzerinden çalıştırma |
 | `internal/services` | Yan servisler: Redis/Valkey, Meilisearch, MinIO — port tahsisi, proje başına veri dizini |
 | `internal/cron` | Zamanlanmış görevler: cron ifadesi ayrıştırma ve üst üste binmeyen çalıştırma |
 | `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
@@ -145,6 +148,36 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Arayüz tarafında: yol haritası Tauri masaüstü uygulaması diyordu. Tauri bir Rust
+derleme zinciri ve platform başına bir web görünümü kütüphanesi gerektiriyor —
+Windows'ta derlenip çalıştırılmadan doğruluğu gösterilemeyecek bir katman. Bu
+depodaki kural, yazılan her şeyin çalıştığının gösterilmesi. Bu yüzden arayüz
+**çekirdek sürecin sunduğu yerel bir sayfa**: aynı API'yi kullanıyor, tek dosya,
+derleme adımı yok, çevrimdışı çalışıyor ve gerçek bir tarayıcıda sınanabiliyor.
+Tauri (ya da Windows'ta zaten kurulu olan WebView2) kabuğu sonradan bu adrese
+bakan ince bir sarmalayıcı olarak eklenebilir; mimari onu dışlamıyor, yalnız
+kanıtlanabilir olanı önce yapıyor.
+
+Panelin projeleri başlatma biçimi de bilinçli: `devbox up`'ı **alt süreç olarak**
+çalıştırıyor, kütüphane olarak çağırmıyor. Böylece çöken bir proje çekirdeği
+düşürmüyor, her projenin günlüğü kendi halka tamponunda duruyor ve komut
+satırından çalıştırılan `devbox up` ile arayüzden başlatılan proje birebir aynı
+kodu çalıştırıyor — "arayüzde çalışıyor ama CLI'da çalışmıyor" durumu oluşmuyor.
+
+Proje kaydı Laragon'un `www` klasörü kuralını benimsemiyor: proje dizini
+istediğiniz yerde durabilir, kayıt yalnız bir işaretçi. Kaydın tuttuğu tek kalıcı
+bilgi dizin yolu; ad, alan adı ve sunucu her okumada `devbox.yaml`'dan
+tazeleniyor — aksi hâlde dosyada alan adını değiştirdiğinizde arayüz eski değeri
+gösterir ve hangisinin doğru olduğu belirsizleşir. Dizini silinen bir proje
+kayıttan kendiliğinden düşmüyor, "dizini eksik" diye işaretleniyor: sessizce
+silmek geri alınamayan bir karar.
+
+Tarayıcı `Authorization` başlığı gönderemediği için panele çerez tabanlı bir
+oturum var: `devbox ui` adresi `?jeton=…` ile açıyor, sunucu çerezi kurup jetonsuz
+adrese yönlendiriyor — jeton adres çubuğunda ve geçmişte kalmıyor. Çerezin
+getirdiği CSRF riski üç katmanla kapatılıyor: `SameSite=Strict`, durum değiştiren
+isteklerde `Origin` denetimi ve zaten var olan `Host` denetimi.
 
 Yan servis tarafında: `devbox.yaml`'daki `services` bloğu Redis, Meilisearch ve
 MinIO'yu projeyle birlikte açıyor; her projenin kendi veri dizini var, portlar
