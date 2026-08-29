@@ -497,7 +497,10 @@ birlikte ele alınacak.
   bir sunucu ikinci bir CA demek olurdu, oysa bizimki zaten güven depolarında.
   Bağımsız `lego` istemcisiyle uçtan uca doğrulandı (CI'da da koşuyor).
 - **Konteyner sürücüsü:** `devbox.yaml`'daki bir servis `driver: docker` ile
-  konteynerde koşabilir; kenar proxy onu da yönlendirir. Yerel/konteyner karışık.
+  konteynerde koşar; kenar proxy onu da yönlendirir. Yerel/konteyner karışık. ✅
+  `internal/container`. Konteyner denetçinin altında ön planda çalışıyor (günlük,
+  yeniden başlatma, durum bedava geliyor); port yalnız geri döngüye yayınlanıyor;
+  bağlamalar proje dışına çıkamıyor. Gerçek Docker ile uçtan uca denendi.
 - **HTTP denetleyicisi:** kenardan aynalanan istek/yanıt akışı, gövde ve başlık
   incelemesi, tekrar gönderme (yerel Charles/Proxyman).
 - **Tünelleme:** Cloudflare Tunnel / ngrok entegrasyonu ile `devbox share magaza`.

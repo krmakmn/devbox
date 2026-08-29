@@ -402,3 +402,86 @@ func TestRelayPasswordCanOnlyComeFromEnvironment(t *testing.T) {
 		t.Error("devbox.yaml'a yazılmış parola kabul edildi")
 	}
 }
+
+// Servisler iki yazımla da yazılabilmeli: kısa olan yaygın durumu kısa
+// tutuyor, uzun olan konteyner sürücüsünü açıyor.
+func TestServiceSpecAcceptsBothForms(t *testing.T) {
+	cfg, err := Parse([]byte(`
+name: magaza
+domain: magaza.test
+services:
+  - redis
+  - meilisearch@1.5
+  - name: api
+    driver: docker
+    image: benim/api:1
+    port: 8080
+    domain: api.magaza.test
+    env:
+      MOD: gelistirme
+    volumes:
+      - ./veri:/data
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Services) != 3 {
+		t.Fatalf("%d servis çözüldü", len(cfg.Services))
+	}
+
+	if cfg.Services[0].Driver != DriverLocal || cfg.Services[0].Kind != "redis" {
+		t.Errorf("kısa yazım = %+v", cfg.Services[0])
+	}
+	if cfg.Services[1].Kind != "meilisearch" || cfg.Services[1].Version != "1.5" {
+		t.Errorf("sürümlü kısa yazım = %+v", cfg.Services[1])
+	}
+	api := cfg.Services[2]
+	if api.Driver != DriverDocker || api.Image != "benim/api:1" || api.Port != 8080 {
+		t.Errorf("uzun yazım = %+v", api)
+	}
+	if api.Domain != "api.magaza.test" || api.Env["MOD"] != "gelistirme" {
+		t.Errorf("uzun yazımın alanları = %+v", api)
+	}
+	if !cfg.UsesDocker() {
+		t.Error("UsesDocker false döndü")
+	}
+}
+
+func TestServiceValidation(t *testing.T) {
+	cases := map[string]string{
+		"imajsız konteyner": "name: a\ndomain: a.test\nservices:\n  - name: api\n    driver: docker\n    port: 80\n",
+		"portsuz konteyner": "name: a\ndomain: a.test\nservices:\n  - name: api\n    driver: docker\n    image: x\n",
+		"geçersiz sürücü":   "name: a\ndomain: a.test\nservices:\n  - name: api\n    driver: kvm\n    image: x\n    port: 80\n",
+		"bilinmeyen yerel":  "name: a\ndomain: a.test\nservices:\n  - kafka\n",
+		"tekrarlanan ad":    "name: a\ndomain: a.test\nservices:\n  - redis\n  - redis\n",
+		"kötü alan adı":     "name: a\ndomain: a.test\nservices:\n  - name: api\n    driver: docker\n    image: x\n    port: 80\n    domain: \"a b\"\n",
+	}
+	for label, data := range cases {
+		cfg, err := Parse([]byte(data))
+		if err != nil {
+			continue
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: geçersiz yapılandırma kabul edildi", label)
+		}
+	}
+}
+
+// devbox.yaml depodan geliyor; klonlayan kişinin makinesinde istediği
+// dizini konteynere açmaya yetkisi olmamalı.
+func TestContainerVolumesCannotEscapeProject(t *testing.T) {
+	for _, vol := range []string{"/etc:/etc", "../../gizli:/data", "C:\\Users:/data"} {
+		data := "name: a\ndomain: a.test\nservices:\n  - name: api\n    driver: docker\n" +
+			"    image: x\n    port: 80\n    volumes:\n      - \"" + vol + "\"\n"
+		cfg, err := Parse([]byte(data))
+		if err != nil {
+			continue
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("proje dışına çıkan bağlama kabul edildi: %q", vol)
+		}
+	}
+}

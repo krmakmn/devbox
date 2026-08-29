@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/krmakmn/devbox/internal/certs"
+	"github.com/krmakmn/devbox/internal/container"
 	"github.com/krmakmn/devbox/internal/cron"
 	"github.com/krmakmn/devbox/internal/dns"
 	"github.com/krmakmn/devbox/internal/edge"
@@ -149,7 +150,7 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 
 	up.startMail(e)
 
-	if err := up.startServices(ctx); err != nil {
+	if err := up.startServices(ctx, e); err != nil {
 		return err
 	}
 
@@ -261,6 +262,7 @@ type upSession struct {
 	cronRunner *cron.Runner
 	relayTo    []string
 	svcManager *services.Manager
+	containers []containerRef
 	backendURL string
 	confPath   string
 }
@@ -281,6 +283,23 @@ func (u *upSession) Close() {
 	if u.cronRunner != nil {
 		u.cronRunner.Close()
 	}
+	// Konteynerler --rm ile açılıyor ve docker istemcisi durunca çoğu
+	// zaman kendiliğinden gidiyorlar; garanti değil, bu yüzden ad
+	// üzerinden temizliyoruz.
+	for _, ref := range u.containers {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if err := container.Remove(ctx, ref.runtime, ref.spec.ContainerName()); err != nil {
+			u.logger.Warn("konteyner temizlenemedi", "ad", ref.spec.ContainerName(), "hata", err)
+		}
+		cancel()
+	}
+}
+
+// containerRef, kapanışta temizlenecek konteyner.
+type containerRef struct {
+	runtime string
+	spec    container.Spec
+	domain  string
 }
 
 // buildSite, yapılandırmadaki sunucu tipine göre isteği karşılayacak
@@ -541,7 +560,7 @@ func (u *upSession) ensureSupervisor() error {
 // Servisler süreçlerden önce başlıyor: kuyruk işçisi Redis'i hazır
 // bulmalı, aksi hâlde açılışta bağlanamayıp yeniden başlatma döngüsüne
 // giriyor.
-func (u *upSession) startServices(ctx context.Context) error {
+func (u *upSession) startServices(ctx context.Context, e *edge.Edge) error {
 	if len(u.cfg.Services) == 0 {
 		return nil
 	}
@@ -556,7 +575,13 @@ func (u *upSession) startServices(ctx context.Context) error {
 		Logger:     u.logger,
 	}
 	for _, entry := range u.cfg.Services {
-		spec, err := services.ParseSpec(entry)
+		if entry.Driver == project.DriverDocker {
+			if err := u.startContainer(ctx, e, entry); err != nil {
+				return err
+			}
+			continue
+		}
+		spec, err := services.ParseSpec(entry.Kind)
 		if err != nil {
 			return err
 		}
@@ -565,6 +590,69 @@ func (u *upSession) startServices(ctx context.Context) error {
 		}
 	}
 	u.svcManager = manager
+	return nil
+}
+
+// startContainer, bir servisi konteynerde çalıştırır ve alan adı
+// verilmişse kenar vekilini ona yönlendirir.
+func (u *upSession) startContainer(ctx context.Context, e *edge.Edge, svc project.ServiceSpec) error {
+	runtime, err := container.FindRuntime()
+	if err != nil {
+		return err
+	}
+	if !container.ImageExists(ctx, runtime, svc.Image) {
+		u.logger.Info("imaj yerelde yok, indiriliyor", "imaj", svc.Image)
+		if err := container.Pull(ctx, runtime, svc.Image); err != nil {
+			return err
+		}
+	}
+
+	hostPort, err := u.alloc.Allocate(0)
+	if err != nil {
+		return fmt.Errorf("%s servisi için port bulunamadı: %w", svc.Name, err)
+	}
+
+	spec := container.Spec{
+		Project:       u.cfg.Name,
+		Name:          svc.Name,
+		Image:         svc.Image,
+		ContainerPort: svc.Port,
+		HostPort:      hostPort,
+		Env:           svc.Env,
+		Volumes:       svc.Volumes,
+		Command:       svc.Command,
+		WorkDir:       u.cfg.Dir(),
+	}
+
+	// Önceki oturumdan kalmış olabilir: aynı adla ikinci konteyner
+	// açılamaz ve hata mesajı ("name already in use") kullanıcıya bir
+	// şey anlatmaz.
+	removeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	container.Remove(removeCtx, runtime, spec.ContainerName())
+	cancel()
+
+	service, err := u.sup.Add(container.ServiceConfig(runtime, spec))
+	if err != nil {
+		return err
+	}
+	if err := service.Start(ctx); err != nil {
+		return fmt.Errorf("%s konteyneri başlatılamadı: %w", svc.Name, err)
+	}
+
+	u.containers = append(u.containers, containerRef{runtime: runtime, spec: spec, domain: svc.Domain})
+
+	if svc.Domain != "" {
+		handler, err := edge.ProxyHandler(svc.Domain, spec.Endpoint(), u.logger)
+		if err != nil {
+			return err
+		}
+		e.Handle(svc.Domain, handler)
+		// Sertifika şimdi üretiliyor: ilk istekte üretmek, tarayıcının
+		// ilk el sıkışmasını yavaşlatıyor.
+		if store, err := certs.Open(paths.CertsDir()); err == nil {
+			store.Certificate(svc.Domain)
+		}
+	}
 	return nil
 }
 
@@ -644,6 +732,14 @@ func (u *upSession) printSummary() {
 		for _, svc := range u.svcManager.Started() {
 			fmt.Printf("  servis    : %s\n", svc.Summary())
 		}
+	}
+	for _, ref := range u.containers {
+		line := fmt.Sprintf("  konteyner : %s (%s) → 127.0.0.1:%d",
+			ref.spec.Name, ref.spec.Image, ref.spec.HostPort)
+		if ref.domain != "" {
+			line += fmt.Sprintf(", https://%s", ref.domain)
+		}
+		fmt.Println(line)
 	}
 	if u.sup != nil {
 		for _, s := range u.sup.Status() {

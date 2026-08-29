@@ -74,8 +74,12 @@ type Config struct {
 	// PHP, PHP ayarları.
 	PHP PHP `yaml:"php,omitempty"`
 
-	// Services, ayağa kaldırılacak yan servisler ("postgres@17", "redis").
-	Services []string `yaml:"services,omitempty"`
+	// Services, ayağa kaldırılacak yan servisler.
+	//
+	// İki yazım var: kısa ("redis", "meilisearch@1.5") ve uzun (bir
+	// eşleme). Kısası makinede kurulu ikiliyi çalıştırıyor, uzunu
+	// konteyner sürücüsünü de açıyor.
+	Services []ServiceSpec `yaml:"services,omitempty"`
 
 	// Env, projeye verilecek ortam değişkenleri.
 	Env map[string]string `yaml:"env,omitempty"`
@@ -110,6 +114,98 @@ type PHP struct {
 
 	// Xdebug, hata ayıklayıcıyı açar.
 	Xdebug bool `yaml:"xdebug,omitempty"`
+}
+
+// Sürücü seçenekleri.
+const (
+	// DriverLocal, servisi makinedeki ikiliyle çalıştırır.
+	DriverLocal = "local"
+
+	// DriverDocker, servisi konteynerde çalıştırır.
+	DriverDocker = "docker"
+)
+
+// ServiceSpec, devbox.yaml'daki bir servis girdisi.
+//
+// # Neden iki yazım
+//
+// "services: [redis]" en sık kullanılan hâl ve tek kelime yetiyor.
+// Konteyner ise imaj, port ve alan adı istiyor. Kısa yazımı korumak,
+// yaygın durumu kısa tutuyor; uzun yazım gerektiğinde açılıyor.
+type ServiceSpec struct {
+	// Name, servisin adı. Kısa yazımda türden geliyor.
+	Name string `yaml:"name,omitempty"`
+
+	// Driver, "local" (öntanımlı) ya da "docker".
+	Driver string `yaml:"driver,omitempty"`
+
+	// Kind, yerel sürücüde servis türü ("redis", "minio").
+	Kind string `yaml:"kind,omitempty"`
+
+	// Version, istenen sürüm.
+	Version string `yaml:"version,omitempty"`
+
+	// Image, konteyner sürücüsünde çalıştırılacak imaj.
+	Image string `yaml:"image,omitempty"`
+
+	// Port, konteynerin içinde dinlenen port.
+	Port int `yaml:"port,omitempty"`
+
+	// Domain, verilirse kenar vekili bu adı servise yönlendirir.
+	Domain string `yaml:"domain,omitempty"`
+
+	// Env, konteynere verilecek ortam değişkenleri.
+	Env map[string]string `yaml:"env,omitempty"`
+
+	// Volumes, bağlanacak dizinler ("./veri:/data").
+	Volumes []string `yaml:"volumes,omitempty"`
+
+	// Command, imajın öntanımlı komutunun yerine geçer.
+	Command []string `yaml:"command,omitempty"`
+}
+
+// UnmarshalYAML, hem kısa hem uzun yazımı kabul eder.
+func (s *ServiceSpec) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		var short string
+		if err := node.Decode(&short); err != nil {
+			return err
+		}
+		kind, version, _ := strings.Cut(strings.TrimSpace(short), "@")
+		s.Driver = DriverLocal
+		s.Kind = strings.ToLower(strings.TrimSpace(kind))
+		s.Name = s.Kind
+		s.Version = strings.TrimSpace(version)
+		return nil
+	}
+
+	// Alan adı yanlış yazılırsa sessizce yok sayılmasın.
+	type plain ServiceSpec
+	var out plain
+	if err := node.Decode(&out); err != nil {
+		return err
+	}
+	*s = ServiceSpec(out)
+	if s.Driver == "" {
+		s.Driver = DriverLocal
+	}
+	if s.Kind == "" && s.Driver == DriverLocal {
+		s.Kind = s.Name
+	}
+	if s.Name == "" {
+		s.Name = s.Kind
+	}
+	return nil
+}
+
+// UsesDocker, projede konteyner sürücüsü kullanan bir servis var mı.
+func (c *Config) UsesDocker() bool {
+	for _, svc := range c.Services {
+		if svc.Driver == DriverDocker {
+			return true
+		}
+	}
+	return false
 }
 
 // Mail, projenin posta yakalayıcı ayarları.
@@ -286,11 +382,52 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("geçersiz PHP uzantısı %q", e)
 		}
 	}
-	for _, entry := range c.Services {
-		// Yazım hatası, servis sessizce eksik kalmak yerine hemen
-		// görünsün.
-		if _, err := services.ParseSpec(entry); err != nil {
-			return err
+	seen := make(map[string]bool, len(c.Services))
+	for i, svc := range c.Services {
+		if svc.Name == "" {
+			return fmt.Errorf("%d. servisin adı yok", i+1)
+		}
+		if !validName(svc.Name) {
+			return fmt.Errorf("geçersiz servis adı %q", svc.Name)
+		}
+		if seen[svc.Name] {
+			return fmt.Errorf("servis adı iki kez kullanılmış: %q", svc.Name)
+		}
+		seen[svc.Name] = true
+
+		switch svc.Driver {
+		case DriverLocal:
+			// Yazım hatası, servis sessizce eksik kalmak yerine hemen
+			// görünsün.
+			if _, err := services.ParseSpec(svc.Kind); err != nil {
+				return err
+			}
+		case DriverDocker:
+			if svc.Image == "" {
+				return fmt.Errorf("%q servisi için image gerekli (driver: docker)", svc.Name)
+			}
+			if svc.Port <= 0 || svc.Port > 65535 {
+				return fmt.Errorf("%q servisi için geçerli bir port gerekli (driver: docker)", svc.Name)
+			}
+			if svc.Domain != "" && !validDomain(svc.Domain) {
+				return fmt.Errorf("%q servisinin alan adı geçersiz: %q", svc.Name, svc.Domain)
+			}
+			// Bağlanan dizinler proje dışına çıkamaz: devbox.yaml
+			// depodan geliyor ve klonlayanın makinesinde istediği
+			// dizini konteynere açmaya yetkisi olmamalı.
+			for _, vol := range svc.Volumes {
+				host, _, ok := strings.Cut(vol, ":")
+				if !ok || host == "" {
+					return fmt.Errorf("%q servisinde geçersiz bağlama: %q", svc.Name, vol)
+				}
+				if isAbsoluteAnyPlatform(host) || strings.Contains(filepath.ToSlash(host), "..") {
+					return fmt.Errorf("%q servisinde bağlanan dizin proje içinde ve göreli olmalı: %q",
+						svc.Name, host)
+				}
+			}
+		default:
+			return fmt.Errorf("%q servisinde geçersiz driver %q (local ya da docker)",
+				svc.Name, svc.Driver)
 		}
 	}
 	if c.Mail.Host != "" && !validDomain(c.Mail.Host) {

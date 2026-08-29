@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/container` | Konteyner sürücüsü: docker/podman ile servis çalıştırma |
 | `internal/acme` | Yerel ACME (RFC 8555) sunucusu: JWS doğrulama, http-01, CSR imzalama |
 | `internal/procstat` | Süreçlerin bellek ve işlemci kullanımı (Linux /proc, Windows psapi) |
 | `internal/scaffold` | Proje şablonları: çerçevenin kendi kurucusunu çağırır |
@@ -151,6 +152,23 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Konteyner tarafında: `devbox.yaml`'daki bir servis `driver: docker` ile
+konteynerde koşabiliyor; kenar vekili ona da alan adı verip TLS'i sonlandırıyor.
+Her bileşen yerel ikili olarak kurulamıyor — Windows'ta resmî derlemesi olmayan
+ya da kurulumu makineyi kirleten şeyler var.
+
+Konteyner `docker run -d` ile arka planda değil, **denetçinin altında ön planda**
+çalışıyor. Böylece çıktısı doğrudan servisin halka tamponuna düşüyor, süreç ömrü
+konteyner ömrüyle eşleşiyor ve yeniden başlatma ilkesi, hazırlık ölçütü, durum
+bildirimi denetçiden geliyor — ikinci bir yaşam döngüsü yönetimi yazmıyoruz.
+
+Port yalnız `127.0.0.1`'e yayınlanıyor. `-p 8080:80` yazmak konteyneri makinenin
+tüm arayüzlerinde açar ve aynı ağdaki herkes geliştirme veritabanınıza
+bağlanabilir; Docker bu öntanımlıyla güvenlik duvarı kurallarını da atladığı için
+sık yaşanan bir kazadır. Bağlanan dizinler de proje dışına çıkamıyor: `devbox.yaml`
+depodan geliyor ve klonlayanın makinesinde istediği dizini konteynere açmaya
+yetkisi olmamalı.
 
 ACME tarafında: `devbox acme serve` yerel bir RFC 8555 sunucusu açıyor. Amaç,
 DevBox'ın dizinine girmeyen şeylerin de sertifika alabilmesi — WSL2'deki bir
