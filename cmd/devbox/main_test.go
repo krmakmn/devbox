@@ -142,3 +142,34 @@ func TestSplitNameAndFlags(t *testing.T) {
 		}
 	}
 }
+
+// Tarayıcıyı açan komut hiçbir platformda kabuk kullanmıyor (Windows'ta
+// cmd yerine rundll32), yani & ve $() yorumlanacağı bir yer yok. Bu
+// denetim ikinci katman: şema ve denetim karakteri sınırı.
+func TestBrowserURLGuard(t *testing.T) {
+	kotu := map[string]string{
+		"dosya şeması": "file:///C:/Windows/System32/calc.exe",
+		"betik şeması": "javascript:alert(1)",
+		"şemasız":      "127.0.0.1:9500",
+		"konaksız":     "http:///yol",
+		"satır sonu":   "http://127.0.0.1:9500/\n& calc",
+		"boşluk":       `http://127.0.0.1:9500/" & calc.exe`,
+	}
+	for label, url := range kotu {
+		if err := safeBrowserURL(url); err == nil {
+			t.Errorf("%s: şüpheli adres kabul edildi: %q", label, url)
+		}
+	}
+
+	iyi := []string{
+		"http://127.0.0.1:9500/",
+		"http://127.0.0.1:9500/?jeton=abc-123_XY",
+		"http://[::1]:9500/",
+		"https://magaza.test/yol/alt?a=1&b=2",
+	}
+	for _, url := range iyi {
+		if err := safeBrowserURL(url); err != nil {
+			t.Errorf("geçerli adres reddedildi: %q (%v)", url, err)
+		}
+	}
+}

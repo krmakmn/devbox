@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,21 +148,56 @@ gösterir.
 	return nil
 }
 
+// safeBrowserURL, adresin tarayıcıya verilebilir olduğunu doğrular.
+//
+// Asıl koruma aşağıdaki komut seçimi: hiçbir platformda kabuk
+// kullanılmıyor, yani & ve $() gibi karakterlerin yorumlanacağı bir yer
+// yok. Bu denetim ikinci katman ve dar tutuldu: yalnız http/https, ve
+// boşluk/denetim karakteri içermeyen adresler. Böylece ileride adresi
+// başka bir yerden alan bir değişiklik, en azından şema düzeyinde
+// sınırlı kalıyor.
+func safeBrowserURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("adres çözümlenemedi: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("yalnız http ve https açılabilir, %q verildi", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("adreste konak yok: %q", raw)
+	}
+	for _, r := range raw {
+		if r < 0x20 || r == 0x7f || r == ' ' {
+			return fmt.Errorf("adres boşluk ya da denetim karakteri içeriyor")
+		}
+	}
+	return nil
+}
+
 // openBrowser, adresi işletim sisteminin varsayılan tarayıcısında açar.
-func openBrowser(url string) error {
+//
+// Hiçbir platformda kabuk kullanılmıyor. Windows'ta alışılmış yol
+// "cmd /c start <adres>" ama cmd, adresteki & karakterini komut ayracı
+// sayıyor; adres bir gün bizim üretmediğimiz bir yerden gelirse bu
+// doğrudan komut çalıştırmaya dönüşür. rundll32 aynı işi kabuk
+// olmadan yapıyor.
+func openBrowser(rawURL string) error {
+	if err := safeBrowserURL(rawURL); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	switch runtime.GOOS {
 	case "windows":
-		// rundll32 yerine cmd start: start kabuk yerleşiği olduğu için
-		// /c ile çağrılıyor. İlk tırnaklı argüman pencere başlığı sayılır,
-		// bu yüzden boş bir başlık veriliyor.
-		return exec.CommandContext(ctx, "cmd", "/c", "start", "", url).Run()
+		return exec.CommandContext(ctx, "rundll32.exe",
+			"url.dll,FileProtocolHandler", rawURL).Run()
 	case "darwin":
-		return exec.CommandContext(ctx, "open", url).Run()
+		return exec.CommandContext(ctx, "open", rawURL).Run()
 	default:
-		return exec.CommandContext(ctx, "xdg-open", url).Run()
+		return exec.CommandContext(ctx, "xdg-open", rawURL).Run()
 	}
 }
 

@@ -26,6 +26,8 @@
 | Çerçeve kurucusuna hedef dizinin mutlak yolu verilir | **Kurucular yolu çalışma dizinine ekliyor** | create-vite'a mutlak yol verilince proje `/tmp/yeni/tmp/yeni/arayuz`'e kuruldu. Komut artık hedefin üst dizininde çalışıp yalnız adı alıyor. Gerçek kurucuyla ilk denemede çıktı |
 | YAML satırını `/^\s*xdebug:\s*(true\|false)\s*$/m` ile değiştirmek güvenli | **`\s` satır sonunu da yutuyor** | Eklenti, Xdebug'ı çevirirken kullanıcının `devbox.yaml`'ının son satır sonunu siliyordu — deposunda gereksiz bir fark. `[ \t]` ile sınırlandırıldı; test sabitliyor |
 | TCPReady dönünce sunucu isteği işlemeye hazırdır | **TCPReady'nin sözü yalnız "port bağlantı kabul ediyor"** | Windows CI'da hazırlık ölçütünden hemen sonraki ilk HTTP isteği sıfırlandı: sunucunun kabul döngüsü ile ölçütün deneme bağlantısı yarışıyor. Test artık ayrım yapıyor — bağlantının reddedilmesi hemen düşürüyor (ölçüt yalan söylemiş), sıfırlanması kısa süre yeniden deneniyor. Veritabanı sürücülerinin TCPReady yerine LogReady kullanmasının sebebi de bu |
+| Kenar 80/443'ü tüm arayüzlerde dinlediğinde yalnız site açılır | **Posta kutusu ve denetleyici de açılıyordu** | Aynı ağdaki biri `inspect.magaza.test` adresini açıp kaydedilmiş istek gövdelerini ve `Authorization` başlıklarını okuyabilirdi. Faz 8 güvenlik gözden geçirmesinde bulundu; ikisi artık `RemoteAddr`'a bakan `LoopbackOnly` ile sarılı |
+| `cmd /c start <adres>` ile tarayıcı açmak zararsız | **cmd, adresteki `&` karakterini komut ayracı sayıyor** | Adres bugün bizim ürettiğimiz uç noktadan geldiği için sömürülebilir değildi; ama adresi başka bir yerden alan bir değişiklik bunu sessizce komut çalıştırmaya çevirirdi. Kabuk devreden çıkarıldı (`rundll32 url.dll,FileProtocolHandler`) |
 | Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
@@ -526,7 +528,13 @@ birlikte ele alınacak.
   bunun WSL2'de olması denenmedi.
 
 ### Faz 8 — Sağlamlaştırma ve 1.0 · 5 hafta
-- Bağımsız **güvenlik denetimi** (odak: helper IPC ve LPE yüzeyi).
+- Bağımsız **güvenlik denetimi** (odak: helper IPC ve LPE yüzeyi). ⏳ Bağımsız
+  denetim yaptırılmadı — aynı kişinin yazdığı kodu aynı kişinin denetlemesi
+  onun yerine geçmez. Yapılan: saldırı yüzeyinin sistematik dökümü ve
+  gerekçeler (`docs/guvenlik.md`), denetim yaptıracak kişi için başlangıç
+  noktaları. Yol haritasının işaret ettiği "helper IPC ve LPE yüzeyi" zaten
+  **yok**: Faz 1'de kalıcı ayrıcalıklı servis terk edildi. Gözden geçirmede iki
+  gerçek bulgu düzeltildi (aşağıdaki tabloya eklendi).
 - Kod imzalama, MSI/`winget` paketi, delta güncelleyici, çökme raporlama
   (kullanıcı onaylı).
 - Laragon/XAMPP'tan **göç aracı** ✅ `internal/migrate`, `devbox migrate`.

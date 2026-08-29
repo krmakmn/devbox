@@ -533,7 +533,11 @@ func (u *upSession) startMail(e *edge.Edge) {
 		return
 	}
 	u.mailSMTP = srv
-	e.Handle(u.cfg.MailHost(), &mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()})
+	// Kenar 80/443'ü tüm arayüzlerde dinliyor (siteyi telefondan
+	// denemek için). Posta kutusu yakalanmış postaları gösteriyor;
+	// o ağa açılmamalı.
+	e.Handle(u.cfg.MailHost(), edge.LoopbackOnly(
+		&mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()}))
 }
 
 // projectEnv, süreçlere ve zamanlanmış görevlere verilecek ortam
@@ -593,12 +597,14 @@ func (u *upSession) startInspector(e *edge.Edge, store *certs.Store, httpsAddr s
 	if port == "" {
 		port = "443"
 	}
-	e.Handle(u.cfg.InspectHost(), &inspect.Handler{
+	// Denetleyici kaydedilen istek gövdelerini ve Authorization
+	// başlıklarını gösteriyor; yalnız makinenin kendisinden açılabilir.
+	e.Handle(u.cfg.InspectHost(), edge.LoopbackOnly(&inspect.Handler{
 		Recorder:  recorder,
 		EdgeAddr:  "127.0.0.1:" + port,
 		TLSConfig: &tls.Config{RootCAs: store.RootPool()},
 		Domain:    u.cfg.Domain,
-	})
+	}))
 	store.Certificate(u.cfg.InspectHost())
 }
 
