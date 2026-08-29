@@ -356,6 +356,9 @@ func (s *Service) spawn(ctx context.Context) (*exec.Cmd, error) {
 	cmd.Stdout = s.logs
 	cmd.Stderr = s.logs
 
+	// Hazır olma ölçütü yalnız bu koşunun çıktısına baksın.
+	s.logs.MarkStart()
+
 	s.group.Prepare(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("supervisor: %s başlatılamadı: %w", s.cfg.Name, err)

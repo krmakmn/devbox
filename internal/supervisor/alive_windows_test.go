@@ -22,3 +22,15 @@ func processAlive(pid int) bool {
 	}
 	return code == stillActive
 }
+
+// killProcess, süreci dışarıdan sonlandırır: denetçinin yeniden başlatma
+// yolunu sınamak için.
+func killProcess(pid int) error {
+	const processTerminate = 0x0001
+	h, err := syscall.OpenProcess(processTerminate, false, uint32(pid))
+	if err != nil {
+		return err
+	}
+	defer syscall.CloseHandle(h)
+	return syscall.TerminateProcess(h, 1)
+}

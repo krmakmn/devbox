@@ -151,6 +151,17 @@ func (a *Allocator) AllocateSeries(preferred, n int) ([]int, error) {
 	return out, nil
 }
 
+// Reserve, portu bağlama denemesi yapmadan tahsis edilmiş sayar.
+//
+// Kalıcı olarak atanmış portları (diskteki veritabanı örneklerinin portları
+// gibi) tahsis ediciye bildirmek için. O anda kimse dinlemiyor olsa bile o
+// port başkasına verilmemeli.
+func (a *Allocator) Reserve(port int) {
+	a.mu.Lock()
+	a.taken[port] = true
+	a.mu.Unlock()
+}
+
 // Release, portu tekrar kullanılabilir yapar.
 func (a *Allocator) Release(port int) {
 	a.mu.Lock()

@@ -396,3 +396,80 @@ func freeAddr(t *testing.T) string {
 	ln.Close()
 	return addr
 }
+
+// Gerçek bir hatanın testi: günlük tamponu yeniden başlatmalar arasında
+// korunuyor. LogReady tamponun tamamına bakarsa, önceki koşudan kalan
+// "hazır" satırı yeni süreci hazır sayar ve Start, süreç henüz portu
+// açmamışken döner. Veritabanı örneklerinde bu, anlık görüntüden sonraki
+// ilk bağlantının reddedilmesi olarak ortaya çıkmıştı.
+func TestLogReadyIgnoresPreviousRunOutput(t *testing.T) {
+	sup := newSupervisor(t)
+
+	cfg := fakeConfig("gecikmeli", "FAKE_STARTUP_DELAY=500ms", "FAKE_LOG=HAZIR")
+	cfg.Ready = LogReady{Substring: "HAZIR"}
+	cfg.RestartBackoff = 10 * time.Millisecond
+	svc, err := sup.Add(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	firstPID := svc.Status().PID
+
+	// Süreci dışarıdan öldür: denetçi yenisini başlatacak ve tamponda
+	// eski koşunun "HAZIR" satırı duracak.
+	if err := killProcess(firstPID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	var secondPID int
+	for time.Now().Before(deadline) {
+		st := svc.Status()
+		if st.State == StateRunning.String() && st.PID != 0 && st.PID != firstPID {
+			secondPID = st.PID
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if secondPID == 0 {
+		t.Fatalf("süreç yeniden başlamadı; durum: %+v", svc.Status())
+	}
+
+	// Yeni süreç 500 ms gecikmeyle yazıyor. Durum "çalışıyor" olduysa,
+	// ölçüt yeni koşunun satırını görmüş olmalı — eskisini değil.
+	if !strings.Contains(svc.Logs().SinceStart(), "HAZIR") {
+		t.Error("hazır olma ölçütü eski koşunun çıktısıyla geçmiş olabilir")
+	}
+}
+
+func TestLogBufferSinceStart(t *testing.T) {
+	b := NewLogBuffer(1024)
+	io.WriteString(b, "birinci koşu: HAZIR\n")
+
+	if !strings.Contains(b.SinceStart(), "birinci") {
+		t.Error("işaretlemeden önceki çıktı görünmüyor")
+	}
+
+	b.MarkStart()
+	if got := b.SinceStart(); got != "" {
+		t.Errorf("işaretlemeden hemen sonra %q, beklenen boş", got)
+	}
+
+	io.WriteString(b, "ikinci koşu\n")
+	since := b.SinceStart()
+	if !strings.Contains(since, "ikinci") {
+		t.Error("işaretlemeden sonraki çıktı görünmüyor")
+	}
+	if strings.Contains(since, "birinci") {
+		t.Error("işaretlemeden önceki çıktı hâlâ görünüyor")
+	}
+	// Tamponun tamamı ise her ikisini de tutmalı; çökme tanısı için lazım.
+	if !strings.Contains(b.String(), "birinci") {
+		t.Error("tampon önceki koşuyu atmış; çökme tanısı kaybolur")
+	}
+}

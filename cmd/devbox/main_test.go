@@ -119,3 +119,26 @@ func TestSanitizeName(t *testing.T) {
 		}
 	}
 }
+
+// Bu kalıp iki kez hataya yol açtı (devbox logs, devbox db create): flag
+// paketi ilk konumsal argümanda durduğu için, alt komuttan sonra gelen ad
+// bayrakların ayrıştırılmasını engelliyordu.
+func TestSplitNameAndFlags(t *testing.T) {
+	cases := []struct {
+		args     []string
+		wantName string
+		wantRest []string
+	}{
+		{[]string{"magaza", "-engine", "postgres"}, "magaza", []string{"-engine", "postgres"}},
+		{[]string{"-engine", "postgres", "magaza"}, "", []string{"-engine", "postgres", "magaza"}},
+		{[]string{"magaza"}, "magaza", []string{}},
+		{nil, "", nil},
+	}
+	for _, c := range cases {
+		name, rest := splitNameAndFlags(c.args)
+		if name != c.wantName || !reflect.DeepEqual(rest, c.wantRest) {
+			t.Errorf("splitNameAndFlags(%v) = %q,%v; beklenen %q,%v",
+				c.args, name, rest, c.wantName, c.wantRest)
+		}
+	}
+}

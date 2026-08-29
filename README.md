@@ -3,11 +3,12 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 3 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 4 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
 > hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
 > kod tarafı (`devbox.yaml`, çerçeve algılama, `devbox up`/`down`) tamamlandı.
+> Faz 4'te veritabanı örnekleri çalışıyor.
 >
 > **MVP'nin kabul kriteri henüz karşılanmadı:** "temiz bir Windows'ta
 > `devbox up` → tarayıcıda uyarısız `https://`". NRPT, Firefox NSS, UAC ve
@@ -39,6 +40,7 @@ Bunun arkasında duran parçalar:
 | `internal/supervisor` | Genel süreç denetçisi: hazır olma ölçütleri, üstel geri çekilme, canlı günlük |
 | `internal/api` | devboxd'nin yerel HTTP arayüzü: jeton, Host denetimi, SSE günlük akışı |
 | `internal/elevate` | Talep üzerine UAC yükseltmesi; kalıcı ayrıcalıklı servis yerine |
+| `internal/database` | Veritabanı örnekleri: PostgreSQL, MySQL, MariaDB — çoklu örnek, anlık görüntü |
 | `internal/project` | `devbox.yaml` okuma ve çerçeve algılama (Laravel, WordPress, Symfony, Next.js, Django) |
 | `internal/webserver` | Apache ve Nginx için vhost üretimi, söz dizimi ön denetimi, geri alma |
 | `internal/ports` | Port tahsisi: Hyper-V rezervasyonları, IIS farkındalığı, açıklayıcı hata |
@@ -85,6 +87,24 @@ meşru bir dağıtımda böyle bir girdi olmaz.
 > **uzaktan manifest reddediliyor**, yerel dosyayla çalışılıyor. Fail-closed
 > davranış bilinçli; doğrulanmamış bir liste istenmeyen bir ikilinin
 > kurulmasına yol açar.
+
+Veritabanı tarafında: Laragon'da tek bir MySQL servisi vardır — tüm projeler
+onu paylaşır, sürüm değiştirmek herkesi etkiler, bir projeyi bozan geçiş
+diğerini de bozar. Buradaki birim **örnek**: her birinin kendi sürümü, kendi
+veri dizini ve kendi portu var; PostgreSQL 16 ile 17 aynı anda ayakta durabilir.
+Port ataması kalıcı, örnek durmuş olsa bile portu başkasına verilmiyor.
+
+**Anlık görüntü veri dizininin birebir kopyası, SQL dökümü değil.** İlk tasarım
+`pg_dumpall` kullanıyordu; gerçek bir kümede denenince kırıldı — üretilen dosya
+`DROP ROLE postgres` içeriyor ve bunu çalışan bir kümeye uygulamak "current user
+cannot be dropped" ile düşüyor, üstelik veritabanı zaten düşürüldükten sonra.
+Yani kullanıcı eskisinden kötü bir durumla kalıyordu. Dizin kopyası bu sorunu
+tümden ortadan kaldırıyor ve istenen şeye daha yakın: "geçişten önceki hâle
+dön" demek, bit bit o hâle dönmek demek — roller, ayarlar, diziler dahil.
+Sürümler arası taşıma için SQL dökümü ayrı bir komut: `devbox db export`.
+
+Hazır olma ölçütü TCP değil günlük satırı: MySQL ve MariaDB portu, bağlantı
+kabul etmeye hazır olmadan önce açıyor.
 
 `devbox.yaml` tarafında: ortam makineye değil **depoya** yazılıyor. Ekip
 arkadaşı klonlayıp `devbox up` diyor; aynı PHP sürümü, aynı uzantılar, aynı web

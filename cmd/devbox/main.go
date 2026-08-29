@@ -78,6 +78,8 @@ func run(args []string) error {
 		return runUp(args[1:])
 	case "down":
 		return runDown(args[1:])
+	case "db":
+		return runDB(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -101,6 +103,7 @@ Kullanım:
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
   devbox edge [seçenekler]    80/443'ü dinle, host adına göre dağıt
+  devbox db <alt komut>       veritabanı örnekleri: kur, başlat, anlık görüntü
   devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster
@@ -633,6 +636,16 @@ func splitSubcommand(args []string, fallback string) (sub string, rest []string)
 		return args[0], args[1:]
 	}
 	return fallback, args
+}
+
+// splitNameAndFlags, alt komuttan sonraki konumsal adı bayraklardan ayırır.
+//
+// flag paketi ilk konumsal argümanda durduğu için "db create magaza -engine
+// postgres" çağrısında -engine hiç ayrıştırılmıyordu. Adı önden çekince
+// geri kalanı düz bayrak listesi oluyor ve iki sıra da çalışıyor:
+// "create magaza -engine pg" ve "create -engine pg magaza".
+func splitNameAndFlags(args []string) (name string, rest []string) {
+	return splitSubcommand(args, "")
 }
 
 func splitList(s string) []string {

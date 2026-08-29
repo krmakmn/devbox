@@ -113,7 +113,11 @@ func (l LogReady) Ready(context.Context) error {
 	if l.logs == nil {
 		return errors.New("supervisor: günlük tamponu yok")
 	}
-	if strings.Contains(l.logs.String(), l.Substring) {
+	// Yalnız bu koşunun çıktısına bakıyoruz. Tampon yeniden başlatmalar
+	// arasında korunduğu için tamamına bakmak, önceki koşudan kalan
+	// "hazır" satırının yeni süreci hazır saymasına yol açıyordu: süreç
+	// henüz portu açmamışken Start dönüyor ve ilk bağlantı reddediliyordu.
+	if strings.Contains(l.logs.SinceStart(), l.Substring) {
 		return nil
 	}
 	return fmt.Errorf("günlükte %q henüz yok", l.Substring)
@@ -221,6 +225,13 @@ type LogBuffer struct {
 	limit  int
 	subs   map[int]chan []byte
 	nextID int
+
+	// written, tamponun ömrü boyunca yazılan toplam bayt. Halka tamponu
+	// eskiyi attığı için mutlak konumu ancak böyle takip edebiliyoruz.
+	written int64
+
+	// runStart, o anki sürecin çıktısının başladığı mutlak konum.
+	runStart int64
 }
 
 // NewLogBuffer, verilen bayt sınırıyla bir tampon oluşturur.
@@ -233,6 +244,7 @@ func NewLogBuffer(limit int) *LogBuffer {
 
 func (b *LogBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
+	b.written += int64(len(p))
 	b.buf = append(b.buf, p...)
 	if len(b.buf) > b.limit {
 		b.buf = b.buf[len(b.buf)-b.limit:]
@@ -263,6 +275,29 @@ func (b *LogBuffer) Bytes() []byte {
 }
 
 func (b *LogBuffer) String() string { return string(b.Bytes()) }
+
+// MarkStart, o anki konumu "yeni sürecin çıktısı buradan başlıyor" diye
+// işaretler. Denetçi her süreç başlatmasında çağırıyor.
+func (b *LogBuffer) MarkStart() {
+	b.mu.Lock()
+	b.runStart = b.written
+	b.mu.Unlock()
+}
+
+// SinceStart, son MarkStart'tan bu yana yazılan çıktıyı döner.
+//
+// Halka tamponu eskiyi attığı için, işaretten sonraki verinin bir kısmı
+// düşmüş olabilir; o durumda elde kalan kadarı dönüyor.
+func (b *LogBuffer) SinceStart() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	since := b.written - b.runStart
+	if since >= int64(len(b.buf)) {
+		return string(b.buf)
+	}
+	return string(b.buf[int64(len(b.buf))-since:])
+}
 
 // Subscribe, yeni satırları alacak bir kanal döner. Dönen fonksiyon
 // aboneliği sonlandırır.
