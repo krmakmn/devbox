@@ -235,3 +235,25 @@ func anahtarlar(m map[string]any) []string {
 	}
 	return out
 }
+
+// TestPanelOnbellegeAlinmiyor, gerçek kullanımda çıkan bir kusuru
+// kilitliyor: DevBox güncellendikten sonra panel eski hâliyle
+// açılıyordu. Sayfa ikilinin içinde gömülü ve adresi hep aynı; başlık
+// olmayınca tarayıcı onu kendi sezgisiyle saklıyor ve kullanıcı yeni
+// özelliği hiç göremiyor.
+func TestPanelOnbellegeAlinmiyor(t *testing.T) {
+	adres, jeton, _ := ayarSunucusu(t)
+
+	resp, govde := istek(t, http.MethodGet, "http://"+adres+"/", jeton, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("durum %d", resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control = %q, no-store bekleniyordu", cc)
+	}
+	// Panelin gerçekten ayarlar sekmesini içerdiğini de burada
+	// doğruluyoruz: "sekme yok" şikâyetinin ikinci olası sebebi buydu.
+	if !strings.Contains(govde, `data-sekme="ayarlar"`) {
+		t.Error("panelde ayarlar sekmesi yok")
+	}
+}

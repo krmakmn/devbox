@@ -496,5 +496,12 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "+
 			"img-src 'self' data:; frame-src 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Önbelleğe alınmamalı. Panel ikilinin içinde gömülü: DevBox
+	// güncellendiğinde sayfa da değişiyor ama adresi aynı kalıyor.
+	// Doğrulayıcısı olmayan bir 200'ü tarayıcı kendi sezgisiyle
+	// saklayabildiği için kullanıcı yeni sürümü kurup eski paneli
+	// görüyordu — üstelik sebebi görünmeden. Yerel ve küçük bir sayfada
+	// önbelleğin kazandırdığı hiçbir şey bu riski karşılamıyor.
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	io.WriteString(w, panelHTML)
 }
