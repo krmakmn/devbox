@@ -69,11 +69,16 @@ girince proje sürecinin gördüğü uzak adres her zaman 127.0.0.1 oluyor,
 yani kısıtı kenarın uygulaması gerekiyor. Gerçek bir LAN adresi
 (192.168.x.x) üzerinden doğrulandı — site 200, denetleyici 403.
 
-**Bilinen eksik:** kenar ortaklaştırıldı ama SMTP portu (1025)
-ortaklaştırılmadı. İki proje birden çalışırken portu ilk başlayan alır,
-ikincisi uyarı verip devam eder — sessizce yanlış davranmıyor ama
-ikinci projenin postaları yakalanmıyor. Düzgün çözüm tek bir posta
-yakalayıcının çekirdekte durması.
+**Birden çok projede posta:** her proje kendi posta yakalayıcısını
+alır. İlk proje alışılmış 1025'i, sonrakiler 1026, 1027… kullanır.
+Kutular ayrıdır: `mail.magaza.test` ile `mail.blog.test` farklı
+postaları gösterir.
+
+Uygulamanızın doğru portu bulması için DevBox `MAIL_HOST` ve
+`MAIL_PORT` değişkenlerini sürece geçirir — PHP havuzuna da. Laravel
+gibi `env()` okuyan çerçeveler bunu kendiliğinden görür. `.env`
+dosyasına 1025 yazıp sabitlerseniz ikinci projenin postaları birinci
+projenin kutusuna düşer; portu `devbox up` özetinden okuyun.
 
 ### CI'nin yapamadıkları
 

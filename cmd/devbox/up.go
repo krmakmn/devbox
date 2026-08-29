@@ -126,11 +126,6 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		logger.Debug("port rezervasyonları okunamadı", "hata", err)
 	}
 
-	handler, err := up.buildSite(ctx, *phpPath, *serverBin)
-	if err != nil {
-		return err
-	}
-
 	store, err := certs.Open(paths.CertsDir())
 	if err != nil {
 		return fmt.Errorf("sertifika deposu açılamadı: %w", err)
@@ -148,16 +143,27 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 	if _, port := splitPort(*httpsAddr); port != "" {
 		e.HTTPSPort = port
 	}
-	for _, host := range append([]string{cfg.Domain}, cfg.Aliases...) {
-		e.Handle(host, handler)
-	}
 
+	// Posta ve yan servisler siteden ÖNCE başlıyor. Sıralama bir
+	// kusurun düzeltilmesi: PHP havuzu kurulurken projectEnv henüz boştu,
+	// dolayısıyla PHP uygulaması ne posta yakalayıcının adresini ne de
+	// Redis gibi servislerin değişkenlerini görüyordu. Laravel'in
+	// env('MAIL_PORT') çağrısı boş dönüyordu ve posta hiç yakalanmıyordu.
 	up.startMail(e)
-	up.startInspector(e, store, *httpsAddr)
 
 	if err := up.startServices(ctx, e); err != nil {
 		return err
 	}
+
+	handler, err := up.buildSite(ctx, *phpPath, *serverBin)
+	if err != nil {
+		return err
+	}
+	for _, host := range append([]string{cfg.Domain}, cfg.Aliases...) {
+		e.Handle(host, handler)
+	}
+
+	up.startInspector(e, store, *httpsAddr)
 
 	if err := up.startProcesses(ctx); err != nil {
 		return err
@@ -436,7 +442,7 @@ func (u *upSession) startPHP(ctx context.Context, phpPath string) error {
 		Workers:     cfg.PHP.Workers,
 		BasePort:    basePort,
 		MaxRequests: 500,
-		Env:         envList(cfg.Env),
+		Env:         envList(u.projectEnv()),
 		Logger:      u.logger,
 	})
 	if err != nil {
@@ -542,9 +548,10 @@ func (u *upSession) startMail(e *edge.Edge) {
 	if u.cfg.Mail.Disabled {
 		return
 	}
-	addr := u.cfg.Mail.SMTP
-	if addr == "" {
-		addr = mail.DefaultSMTPAddr
+	addr, err := u.mailAddr()
+	if err != nil {
+		u.logger.Warn("posta yakalayıcı için adres bulunamadı; posta yakalanmayacak", "hata", err)
+		return
 	}
 	capacity := u.cfg.Mail.Capacity
 	if capacity == 0 {
@@ -578,7 +585,7 @@ func (u *upSession) startMail(e *edge.Edge) {
 		}
 	}
 	if err := srv.Start(); err != nil {
-		u.logger.Warn("posta yakalayıcı başlatılamadı; başka bir DevBox oturumu çalışıyor olabilir",
+		u.logger.Warn("posta yakalayıcı başlatılamadı; posta yakalanmayacak",
 			"adres", addr, "hata", err)
 		return
 	}
@@ -589,6 +596,40 @@ func (u *upSession) startMail(e *edge.Edge) {
 	e.Handle(u.cfg.MailHost(), edge.LoopbackOnly(
 		&mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()}))
 	u.localHosts = append(u.localHosts, u.cfg.MailHost())
+}
+
+// mailAddr, posta yakalayıcının dinleyeceği adresi seçer.
+//
+// Port ayırıcıdan geçiyor çünkü artık birden çok proje aynı anda
+// çalışıyor ve hepsi 1025'i isteyecek. Eskiden ikincisi "başlatılamadı"
+// deyip geçiyordu: uyarı vardı ama o projenin postaları hiç
+// yakalanmıyordu. Ayırıcı 1025'ten yukarı tarayarak boş bir port
+// bulduğu için ilk proje alışılmış portu alıyor, sonrakiler 1026, 1027…
+//
+// Uygulamanın doğru portu bulması projectEnv'e bağlı: MAIL_PORT oradan
+// geliyor ve artık PHP havuzu da onu alıyor.
+func (u *upSession) mailAddr() (string, error) {
+	addr := u.cfg.Mail.SMTP
+	if addr == "" {
+		addr = mail.DefaultSMTPAddr
+	}
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("posta adresi \"host:port\" olmalı: %q", addr)
+	}
+	preferred, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", fmt.Errorf("posta portu sayı olmalı: %q", portStr)
+	}
+
+	port, err := u.alloc.Allocate(preferred)
+	if err != nil {
+		return "", err
+	}
+	// Ayırıcı denemek için bağlanıp bıraktı; asıl dinleyiciyi az sonra
+	// SMTP sunucusu açacak. Rezervasyonu bırakmıyoruz ki aynı süreçte
+	// başka bir bileşen aynı portu istemesin.
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
 // projectEnv, süreçlere ve zamanlanmış görevlere verilecek ortam
