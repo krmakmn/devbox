@@ -124,11 +124,25 @@ Beklenen çıktı:
 devbox 0.1.0-gelistirme (windows/amd64, go1.2x.x)
 ```
 
-Kolaylık olsun diye PATH'e ekleyin (bu oturum için):
+PATH'e ekleyin. **Kalıcı olanı seçin** — aksi hâlde her yeni PowerShell
+penceresinde `devbox` bulunamaz ve bu kılavuz birden çok pencere
+gerektiriyor:
+
+```powershell
+[Environment]::SetEnvironmentVariable('PATH', "$PWD;" + [Environment]::GetEnvironmentVariable('PATH','User'), 'User')
+```
+
+Bu, **sonra açtığınız** pencerelerde geçerli olur. Şu anki pencere için
+ayrıca:
 
 ```powershell
 $env:PATH = "$PWD;$env:PATH"
 ```
+
+> Yalnız geçici olanı çalıştırırsanız, başka bir pencerede
+> `devbox : The term 'devbox' is not recognized…` hatası alırsınız.
+> `$PWD` de o anki dizini gösterdiği için, komutu depo dizini dışında
+> çalıştırmak işe yaramaz.
 
 ---
 
