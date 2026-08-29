@@ -529,8 +529,12 @@ birlikte ele alınacak.
 - Bağımsız **güvenlik denetimi** (odak: helper IPC ve LPE yüzeyi).
 - Kod imzalama, MSI/`winget` paketi, delta güncelleyici, çökme raporlama
   (kullanıcı onaylı).
-- Belgeler, Laragon/XAMPP'tan **göç aracı** (var olan siteleri ve DB'leri içe
-  aktarır) — benimsemenin en kritik parçası.
+- Laragon/XAMPP'tan **göç aracı** ✅ `internal/migrate`, `devbox migrate`.
+  Laragon, XAMPP ve WAMP kurulumlarını buluyor; XAMPP'ta sanal konak dosyasını
+  da okuyor. Dosya kopyalamıyor, var olan kurulumu değiştirmiyor, `-apply`
+  denmeden hiçbir şey yazmıyor. Veritabanı içe aktarımı `devbox db import` ile
+  ayrı ⏳ (göç aracı henüz DB'leri otomatik taşımıyor).
+- Belgeler.
 - Performans kıyasları: soğuk başlatma, ilk istek gecikmesi, RAM.
 - **Kabul:** denetimde yüksek/kritik bulgu yok; temiz kurulumdan çalışan siteye
   5 dakika; → **v1.0**

@@ -3,7 +3,7 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 7 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 8 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
 > hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/migrate` | Laragon/XAMPP/WAMP sitelerini bulup DevBox'a taşıma |
 | `internal/tunnel` | Geçici genel adres: cloudflared/ngrok sarmalayıcısı |
 | `internal/lockfile` | Çalışan sürümlerin kaydı ve karşılaştırması (`devbox.lock`) |
 | `internal/inspect` | HTTP denetleyicisi: kenardan geçen istek/yanıt kaydı ve tekrar gönderme |
@@ -155,6 +156,20 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Göç tarafında: bir geliştirme ortamını değiştirmek, çalışan on beş projeyi
+yeniden kurmak demek — çoğu kişi bunu yapmaz, araç ne kadar iyi olursa olsun.
+`devbox migrate` Laragon, XAMPP ve WAMP kurulumlarını bulup her site için
+`devbox.yaml` üretiyor ve kayda ekliyor. XAMPP'ta sanal konak dosyası da
+okunuyor: oradaki adlar klasör adından daha doğru ve `htdocs` dışını gösteren
+konaklar aksi hâlde kaybolurdu.
+
+Üç karar: **dosyalar kopyalanmıyor** (gigabaytları ikizlemek ve hangisinin
+gerçek olduğu belirsiz iki kopya bırakmak olurdu), **var olan kurulum
+değiştirilmiyor** (kullanıcı DevBox'ı denerken Laragon'u çalışır durumda
+tutabilsin; beğenmezse geri dönsün) ve **öntanımlı olarak hiçbir şey
+yazılmıyor** — komut ne yapacağını gösteriyor, `-apply` diyene kadar bekliyor.
+Eski alan adları takma ad olarak korunuyor ki eski bağlantılar çalışsın.
 
 Kilit dosyası tarafında: `devbox.yaml` niyeti anlatıyor ("PHP 8.3 istiyorum"),
 `devbox.lock` gerçekleşeni ("8.3.14 çalıştı"). Aradaki fark bazen bir hatanın

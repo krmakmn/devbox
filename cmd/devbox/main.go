@@ -80,6 +80,8 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "migrate":
+		return runMigrate(args[1:])
 	case "lock":
 		return runLock(args[1:])
 	case "share":
@@ -129,6 +131,7 @@ Kullanım:
   devbox cert <alt komut>     sertifikaları listele, üret, sil
   devbox share                projeyi geçici bir genel adresle paylaş
   devbox lock <alt komut>     çalışan sürümleri kilitle ve karşılaştır
+  devbox migrate              Laragon/XAMPP sitelerini DevBox'a taşı
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster
   devbox logs [-f] <servis>   servisin günlüğünü göster
