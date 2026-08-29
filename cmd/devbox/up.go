@@ -172,6 +172,65 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 	return srv.ListenAndServe(ctx)
 }
 
+// runDown, "devbox up"ın makinede bıraktığı izleri temizler.
+//
+// Çalışan bir "devbox up"ı durdurmuyor — o ön planda çalışıyor ve Ctrl+C
+// ile duruyor. Buradaki iş, kalıcı olarak yazılmış şeyleri geri almak:
+// üretilen web sunucusu yapılandırması.
+//
+// NRPT kuralına ve hosts girdisine kasten dokunulmuyor: onlar tek bir
+// projeye değil, .test son ekinin tamamına ait. Bir projeyi kapatırken
+// diğerlerinin alan adı çözümlemesini bozmak kabul edilemez. Onlar için
+// ayrı bir komut var: devbox dns uninstall.
+func runDown(args []string) error {
+	fs := flag.NewFlagSet("down", flag.ContinueOnError)
+	dir := fs.String("dir", ".", "proje dizini")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Kullanım: devbox down [seçenekler]
+
+"devbox up"ın makinede bıraktığı web sunucusu yapılandırmasını kaldırır.
+Çalışan bir sunucuyu durdurmaz; onu Ctrl+C ile kapatın.
+
+Alan adı çözümlemesi (NRPT / hosts) tüm .test alan adlarına ait olduğu için
+burada kaldırılmaz: devbox dns uninstall
+
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	absDir, err := filepath.Abs(*dir)
+	if err != nil {
+		return err
+	}
+	cfg, err := project.Load(absDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s bulunamadı", project.FileName)
+		}
+		return err
+	}
+
+	if cfg.Server != project.ServerApache && cfg.Server != project.ServerNginx {
+		fmt.Printf("%s için kaldırılacak yapılandırma yok (sunucu: %s)\n", cfg.Name, cfg.Server)
+		return nil
+	}
+
+	confPath := filepath.Join(paths.DataDir(), "conf", cfg.Server, sanitizeName(cfg.Name)+".conf")
+	if _, err := os.Stat(confPath); err != nil {
+		fmt.Printf("%s için yapılandırma bulunamadı: %s\n", cfg.Name, confPath)
+		return nil
+	}
+	if err := os.Remove(confPath); err != nil {
+		return fmt.Errorf("yapılandırma kaldırılamadı: %w", err)
+	}
+	fmt.Printf("kaldırıldı: %s\n", confPath)
+	fmt.Printf("%s sunucusunu yeniden yükleyin ki değişiklik etkili olsun.\n", cfg.Server)
+	return nil
+}
+
 // upSession, "devbox up" sırasında açılan kaynakları tutar.
 type upSession struct {
 	cfg    *project.Config

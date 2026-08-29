@@ -76,6 +76,8 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "up":
 		return runUp(args[1:])
+	case "down":
+		return runDown(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -94,6 +96,7 @@ func usage() {
 Kullanım:
   devbox init                 projeyi tanı ve devbox.yaml üret
   devbox up                   devbox.yaml'ı okuyup projeyi ayağa kaldır
+  devbox down                 up'ın bıraktığı sunucu yapılandırmasını kaldır
   devbox serve [seçenekler]   bir dizini PHP ile sun
   devbox trust <alt komut>    yerel kök sertifikayı güven depolarına kur
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı

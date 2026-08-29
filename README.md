@@ -6,8 +6,13 @@ Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yen
 > **Durum: Faz 3 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
-> hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) tamamlandı.
-> Faz 3'te `devbox.yaml` ve `devbox up` çalışıyor.
+> hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
+> kod tarafı (`devbox.yaml`, çerçeve algılama, `devbox up`/`down`) tamamlandı.
+>
+> **MVP'nin kabul kriteri henüz karşılanmadı:** "temiz bir Windows'ta
+> `devbox up` → tarayıcıda uyarısız `https://`". NRPT, Firefox NSS, UAC ve
+> Windows'un Apache/Nginx derlemeleri gerçek bir makinede hiç denenmedi;
+> CI bunları kapsayamıyor.
 >
 > Not: NRPT, Firefox NSS ve Windows onay penceresi yolları CI'nin
 > kapsayamadığı yerler — gerçek bir Windows makinesinde elle denenmedi.

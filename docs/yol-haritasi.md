@@ -386,7 +386,7 @@ birlikte ele alınacak.
 - **Kabul:** `devbox runtime install php@8.3` bir dakikada biter, `devbox ps`
   süreçleri gösterir, daemon öldürülünce alt süreçler de ölür.
 
-### Faz 2 — Web katmanı · 5 hafta
+### Faz 2 — Web katmanı · 5 hafta — **tamamlandı**
 - Gömülü Caddy kenarı, 80/443, host adına göre yönlendirme.
 - Apache ve Nginx sürücüleri: şablondan vhost üretimi, atomik yazım, zarif
   yeniden yükleme, conf söz dizimi ön denetimi (`httpd -t`, `nginx -t`).
@@ -395,7 +395,7 @@ birlikte ele alınacak.
 - **Kabul:** Apache'de bir WordPress ile Nginx'te bir Laravel **aynı anda**,
   farklı PHP sürümleriyle çalışıyor.
 
-### Faz 3 — Alan adı, TLS ve MVP · 5 hafta
+### Faz 3 — Alan adı, TLS ve MVP · 5 hafta — **kod tarafı tamamlandı**
 - Yerel DNS sunucusu + NRPT kuralı + `hosts` geri düşüşü.
 - İç CA, güven deposu kurulumu (Windows + Firefox NSS + WSL + Java).
 - Otomatik sertifika üretimi ve sessiz yenileme.
@@ -403,6 +403,16 @@ birlikte ele alınacak.
 - **Kabul (MVP):** temiz bir Windows sanal makinesinde kurulum → `devbox up` →
   `https://magaza.test` Chrome, Edge ve Firefox'ta **uyarısız** açılıyor.
   → **v0.5 kapalı beta**
+
+  **Bu kriter henüz karşılanmadı.** Kod hazır ama gerçek bir Windows
+  makinesinde hiç çalıştırılmadı. CI'nın kapsayamadığı yollar: NRPT kuralı
+  (yönetici hakkı), Firefox NSS kurulumu (NSS araçları), UAC yükseltmesi
+  (masaüstü oturumu), kök sertifika onay penceresi (masaüstü oturumu) ve
+  Apache/Nginx'in Windows derlemeleri.
+
+  Bu oturumun deneyimi kriteri ciddiye almayı destekliyor: en değerli üç
+  hatayı (Windows CRLF, root olmayan kullanıcı, platforma bağlı
+  `filepath.IsAbs`) testler değil gerçek ortamlar buldu.
 
 ### Faz 4 — Veritabanları · 5 hafta
 - MySQL 8.x, MariaDB 11.x, PostgreSQL 14–17 sürücüleri; çoklu örnek, otomatik
