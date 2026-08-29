@@ -18,11 +18,16 @@ Server üzerinde şunları koşuyor
 
 | Denenen | Durum |
 |---|---|
-| Kök sertifikanın makine güven deposuna kurulması | ✅ çalışıyor, parmak iziyle doğrulandı |
+| Kök sertifikanın makine güven deposuna kurulması | ✅ parmak iziyle doğrulandı |
 | Gerçek NRPT kuralı (`Add-DnsClientNrptRule`) | ✅ eklendi ve doğrulandı |
 | Çözücünün `127.0.0.53:53`'e bağlanması | ✅ |
+| `Resolve-DnsName magaza.test` (NRPT üzerinden) | ✅ `A 127.0.0.1`, `AAAA ::1` |
+| `https://magaza.test` — portsuz, `-k` olmadan | ✅ MVP kabul kriteri |
+| Kök kaldırılınca aynı isteğin reddedilmesi | ✅ olumsuz kontrol |
+| HTTP → HTTPS yönlendirmesi | ✅ |
+| Posta kutusu, denetleyici, SMTP yakalayıcı | ✅ |
+| Port alınamadığında doğru davranış | ✅ "hazır" denmiyor, teşhis veriliyor |
 | Kurulumun geri alınması (kural + sertifika) | ✅ |
-| `Resolve-DnsName magaza.test` | ❌ **çözülemedi** — açık sorun |
 | Birim testleri (yarış dedektörüyle) | ✅ |
 
 CI'nin **yapamadıkları** ve bu yüzden size kalanlar:
@@ -53,6 +58,39 @@ Kurulu bir Laragon ya da XAMPP varsa **kapatın** — 80 ve 443 portlarını
 tutuyorlar. Kaldırmanıza gerek yok; göç adımında onlara ihtiyacınız
 olacak.
 
+### 1.1 Ön kontrol: 80 ve 443 gerçekten boş mu?
+
+Bunu baştan yapın. Windows'ta 80 numaralı portu bir program tutmuyor
+olsa bile **işletim sistemi rezerve etmiş** olabilir; Hyper-V, WSL2 ya
+da Docker Desktop açıksa bu çok sık oluyor. CI koşucusunda da tam olarak
+bu çıktı.
+
+```powershell
+# Rezerve aralıklar (yönetici gerekmez)
+netsh int ipv4 show excludedportrange protocol=tcp
+
+# Kim dinliyor?
+Get-NetTCPConnection -State Listen -LocalPort 80,443 -ErrorAction SilentlyContinue |
+  Select-Object LocalAddress, LocalPort, OwningProcess
+```
+
+Çıktıda `80` bir aralığın içinde görünüyorsa ya da `OwningProcess 4`
+(System = `http.sys`, genelde IIS ya da WinNAT) yazıyorsa, DevBox 80'i
+alamaz. Üç seçeneğiniz var:
+
+1. Sebebi kaldırın: IIS'i (`W3SVC`) durdurun, Docker Desktop'ı kapatın.
+2. Rezervasyonu serbest bırakın (yönetici): `net stop winnat`, sonra
+   DevBox'ı başlatın, işiniz bitince `net start winnat`.
+3. Başka bir port kullanın: `devbox up -http :8080`. **443 boşsa MVP
+   deneyimi bozulmaz** — `https://magaza.test` yine portsuz açılır,
+   yalnız düz HTTP yönlendirmesi 8080'den olur.
+
+DevBox portu alamazsa proje **hazır ilan edilmez** ve size hangi
+aralığın rezerve olduğunu söyleyen bir hata verir. Bu davranış, bu
+kılavuz doğrulanırken bulunan bir kusurun düzeltilmesiyle geldi:
+eskiden önce "hazır" yazıyor, sonra anlamsız bir soket hatası
+veriyordu.
+
 ---
 
 ## 2. Derle
@@ -62,9 +100,14 @@ Depoyu klonlayın ve derleyin:
 ```powershell
 git clone https://github.com/krmakmn/devbox.git
 cd devbox
+git checkout claude/laragon-dev-environment-upgrade-09mip4
 go build -o devbox.exe .\cmd\devbox
 .\devbox.exe version
 ```
+
+> Dal adı geçici: bu kılavuzdaki Windows düzeltmeleri henüz `main`'e
+> alınmadı. `main` üzerinde denerseniz burada anlatılan davranışların
+> bir kısmını göremezsiniz.
 
 Beklenen çıktı:
 
@@ -157,10 +200,22 @@ Resolve-DnsName -Name magaza.test
 nslookup magaza.test
 ```
 
-> **Bilinen sorun:** CI'da (2) denenmedi ama (3) başarısız oldu. Eğer
-> sizde de (3) çalışmıyorsa lütfen (1) ve (2)'nin çıktısını da
+Beklenen çıktı (3) için:
+
+```
+Name        Type TTL Section IPAddress
+----        ---- --- ------- ---------
+magaza.test AAAA 10  Answer  ::1
+magaza.test A    10  Answer  127.0.0.1
+```
+
+AAAA'nın önce gelmesi normal; `::1` doğru cevap.
+
+> Üçü de CI'da geçiyor. Sizde (3) çalışmazsa (1) ve (2)'nin çıktısını
 > bildirin — sorunun çözücüde mi yoksa NRPT'nin uygulanmasında mı
-> olduğunu ayırt eden şey tam olarak bu.
+> olduğunu ayırt eden şey tam olarak bu. **Çözücüyü açık bırakmayı
+> unutmayın:** `devbox dns serve` penceresini kapatırsanız NRPT kuralı
+> yerinde kalır ama soracak kimse olmaz.
 >
 > Geçici çözüm: `devbox dns install -hosts` hosts dosyasına yazar
 > (joker desteklemez, her alan adını tek tek ekler).
