@@ -86,6 +86,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/projects/{name}", s.handleProject)
 	mux.HandleFunc("POST /v1/projects/{name}/start", s.handleProjectStart)
 	mux.HandleFunc("POST /v1/projects/{name}/stop", s.handleProjectStop)
+	mux.HandleFunc("GET /v1/projects/{name}/config", s.handleProjectConfig)
+	mux.HandleFunc("PUT /v1/projects/{name}/config", s.handleProjectConfigUpdate)
 	mux.HandleFunc("GET /", s.handleUI)
 
 	return s.requireLocalHost(s.requireAuth(mux))

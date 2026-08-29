@@ -51,72 +51,72 @@ const (
 // Config, devbox.yaml'ın içeriği.
 type Config struct {
 	// Name, projenin adı. Dosya adlarında ve günlüklerde kullanılır.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Domain, sitenin alan adı (ör. magaza.test).
-	Domain string `yaml:"domain"`
+	Domain string `yaml:"domain" json:"domain"`
 
 	// Aliases, ek alan adları.
-	Aliases []string `yaml:"aliases,omitempty"`
+	Aliases []string `yaml:"aliases,omitempty" json:"aliases,omitempty"`
 
 	// Server, isteği kimin karşılayacağı.
-	Server string `yaml:"server"`
+	Server string `yaml:"server" json:"server"`
 
 	// Root, belge kökü — proje dizinine göre. Laravel'de "public".
-	Root string `yaml:"root,omitempty"`
+	Root string `yaml:"root,omitempty" json:"root,omitempty"`
 
 	// Proxy, Server "proxy" ise iletilecek adres.
-	Proxy string `yaml:"proxy,omitempty"`
+	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
 
 	// FrontController, diskte karşılığı olmayan yolların gideceği betik.
-	FrontController string `yaml:"frontController,omitempty"`
+	FrontController string `yaml:"frontController,omitempty" json:"frontController,omitempty"`
 
 	// PHP, PHP ayarları.
-	PHP PHP `yaml:"php,omitempty"`
+	PHP PHP `yaml:"php,omitempty" json:"php,omitempty"`
 
 	// Services, ayağa kaldırılacak yan servisler.
 	//
 	// İki yazım var: kısa ("redis", "meilisearch@1.5") ve uzun (bir
 	// eşleme). Kısası makinede kurulu ikiliyi çalıştırıyor, uzunu
 	// konteyner sürücüsünü de açıyor.
-	Services []ServiceSpec `yaml:"services,omitempty"`
+	Services []ServiceSpec `yaml:"services,omitempty" json:"services,omitempty"`
 
 	// Env, projeye verilecek ortam değişkenleri.
-	Env map[string]string `yaml:"env,omitempty"`
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
 	// Processes, projeyle birlikte çalışacak uzun ömürlü süreçler
 	// (kuyruk işçisi, Vite).
-	Processes map[string]string `yaml:"processes,omitempty"`
+	Processes map[string]string `yaml:"processes,omitempty" json:"processes,omitempty"`
 
 	// Cron, zamanlanmış görevler.
-	Cron []CronEntry `yaml:"cron,omitempty"`
+	Cron []CronEntry `yaml:"cron,omitempty" json:"cron,omitempty"`
 
 	// Mail, yerel posta yakalayıcı ayarları.
-	Mail Mail `yaml:"mail,omitempty"`
+	Mail Mail `yaml:"mail,omitempty" json:"mail,omitempty"`
 
 	// Inspect, HTTP denetleyicisi ayarları.
-	Inspect Inspect `yaml:"inspect,omitempty"`
+	Inspect Inspect `yaml:"inspect,omitempty" json:"inspect,omitempty"`
 
 	// dir, yapılandırmanın okunduğu dizin. Dosyaya yazılmaz.
-	dir string `yaml:"-"`
+	dir string `yaml:"-" json:"-"`
 }
 
 // PHP, projenin PHP ayarları.
 type PHP struct {
 	// Version, kullanılacak PHP sürümü ("8.3"). Boşsa en yenisi.
-	Version string `yaml:"version,omitempty"`
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
 
 	// Workers, php-cgi süreç sayısı. 0 ise CPU sayısı.
-	Workers int `yaml:"workers,omitempty"`
+	Workers int `yaml:"workers,omitempty" json:"workers,omitempty"`
 
 	// Ini, php.ini yönergeleri.
-	Ini map[string]string `yaml:"ini,omitempty"`
+	Ini map[string]string `yaml:"ini,omitempty" json:"ini,omitempty"`
 
 	// Extensions, yüklenecek uzantılar.
-	Extensions []string `yaml:"extensions,omitempty"`
+	Extensions []string `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 
 	// Xdebug, hata ayıklayıcıyı açar.
-	Xdebug bool `yaml:"xdebug,omitempty"`
+	Xdebug bool `yaml:"xdebug,omitempty" json:"xdebug,omitempty"`
 }
 
 // Sürücü seçenekleri.
@@ -137,34 +137,34 @@ const (
 // yaygın durumu kısa tutuyor; uzun yazım gerektiğinde açılıyor.
 type ServiceSpec struct {
 	// Name, servisin adı. Kısa yazımda türden geliyor.
-	Name string `yaml:"name,omitempty"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 
 	// Driver, "local" (öntanımlı) ya da "docker".
-	Driver string `yaml:"driver,omitempty"`
+	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
 
 	// Kind, yerel sürücüde servis türü ("redis", "minio").
-	Kind string `yaml:"kind,omitempty"`
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
 
 	// Version, istenen sürüm.
-	Version string `yaml:"version,omitempty"`
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
 
 	// Image, konteyner sürücüsünde çalıştırılacak imaj.
-	Image string `yaml:"image,omitempty"`
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
 
 	// Port, konteynerin içinde dinlenen port.
-	Port int `yaml:"port,omitempty"`
+	Port int `yaml:"port,omitempty" json:"port,omitempty"`
 
 	// Domain, verilirse kenar vekili bu adı servise yönlendirir.
-	Domain string `yaml:"domain,omitempty"`
+	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
 
 	// Env, konteynere verilecek ortam değişkenleri.
-	Env map[string]string `yaml:"env,omitempty"`
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
 	// Volumes, bağlanacak dizinler ("./veri:/data").
-	Volumes []string `yaml:"volumes,omitempty"`
+	Volumes []string `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 
 	// Command, imajın öntanımlı komutunun yerine geçer.
-	Command []string `yaml:"command,omitempty"`
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
 }
 
 // UnmarshalYAML, hem kısa hem uzun yazımı kabul eder.
@@ -219,20 +219,20 @@ func (c *Config) UsesDocker() bool {
 // imkânsız kılıyor. Kapatmak isteyen "disabled: true" yazar.
 type Mail struct {
 	// Disabled, yakalayıcıyı kapatır.
-	Disabled bool `yaml:"disabled,omitempty"`
+	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 
 	// SMTP, dinlenecek SMTP adresi. Boşsa 127.0.0.1:1025.
-	SMTP string `yaml:"smtp,omitempty"`
+	SMTP string `yaml:"smtp,omitempty" json:"smtp,omitempty"`
 
 	// Host, posta kutusu arayüzünün alan adı. Boşsa mail.<domain>.
-	Host string `yaml:"host,omitempty"`
+	Host string `yaml:"host,omitempty" json:"host,omitempty"`
 
 	// Capacity, bellekte tutulacak en fazla posta. 0 ise varsayılan.
-	Capacity int `yaml:"capacity,omitempty"`
+	Capacity int `yaml:"capacity,omitempty" json:"capacity,omitempty"`
 
 	// Relay, verilirse izin listesindeki alıcılara posta gerçekten
 	// gönderilir. Yazılmadıkça hiçbir posta dışarı çıkmaz.
-	Relay *MailRelay `yaml:"relay,omitempty"`
+	Relay *MailRelay `yaml:"relay,omitempty" json:"relay,omitempty"`
 }
 
 // MailRelay, gerçek posta gönderimi.
@@ -242,20 +242,20 @@ type Mail struct {
 // "Hepsine gönder" diye bir kısayol yok.
 type MailRelay struct {
 	// Host, gerçek SMTP sunucusu ("smtp.example.com:587").
-	Host string `yaml:"host"`
+	Host string `yaml:"host" json:"host"`
 
 	// Username, sunucu kimlik doğrulaması istiyorsa kullanıcı adı.
-	Username string `yaml:"username,omitempty"`
+	Username string `yaml:"username,omitempty" json:"username,omitempty"`
 
 	// PasswordEnv, parolanın okunacağı ortam değişkeninin adı.
 	//
 	// Parola devbox.yaml'a yazılmıyor: bu dosya depoya giriyor ve
 	// parolanın depoda işi yok.
-	PasswordEnv string `yaml:"passwordEnv,omitempty"`
+	PasswordEnv string `yaml:"passwordEnv,omitempty" json:"passwordEnv,omitempty"`
 
 	// Allow, gerçekten posta gidecek alıcılar. Tam adres
 	// ("kerim@sirket.com") ya da alan adı ("sirket.com").
-	Allow []string `yaml:"allow"`
+	Allow []string `yaml:"allow" json:"allow"`
 }
 
 // Inspect, HTTP denetleyicisi ayarları.
@@ -266,13 +266,13 @@ type MailRelay struct {
 // bellekte, sayısı ve gövde boyutu sınırlı.
 type Inspect struct {
 	// Disabled, denetleyiciyi kapatır.
-	Disabled bool `yaml:"disabled,omitempty"`
+	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 
 	// Capacity, saklanacak en fazla istek. 0 ise varsayılan.
-	Capacity int `yaml:"capacity,omitempty"`
+	Capacity int `yaml:"capacity,omitempty" json:"capacity,omitempty"`
 
 	// Host, denetleyicinin alan adı. Boşsa inspect.<domain>.
-	Host string `yaml:"host,omitempty"`
+	Host string `yaml:"host,omitempty" json:"host,omitempty"`
 }
 
 // InspectHost, denetleyicinin alan adı.
@@ -285,8 +285,8 @@ func (c *Config) InspectHost() string {
 
 // CronEntry, zamanlanmış tek bir görev.
 type CronEntry struct {
-	Schedule string `yaml:"schedule"`
-	Run      string `yaml:"run"`
+	Schedule string `yaml:"schedule" json:"schedule"`
+	Run      string `yaml:"run" json:"run"`
 }
 
 // Dir, yapılandırmanın okunduğu proje dizini.
@@ -575,4 +575,12 @@ func validDomain(s string) bool {
 		}
 	}
 	return true
+}
+
+// Servers, desteklenen sunucu tiplerini döner.
+//
+// Panel bu listeyi kullanıyor. Sabitleri arayüzde elle tekrarlamak,
+// yeni bir sunucu eklendiğinde listeyi güncellemeyi unutmak demekti.
+func Servers() []string {
+	return []string{ServerDevBox, ServerApache, ServerNginx, ServerProxy}
 }

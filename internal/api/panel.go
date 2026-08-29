@@ -87,6 +87,28 @@ const panelHTML = `<!doctype html>
             border-bottom:1px solid var(--kenar); color:var(--soluk); font-size:12px; }
   .saglik b { color:var(--metin); font-weight:600; }
   .olcum { color:var(--soluk); font-size:12px; font-variant-numeric:tabular-nums; }
+  .sekmeler { display:flex; gap:2px; padding:0 16px; border-bottom:1px solid var(--kenar);
+              background:var(--ikincil); }
+  .sekmeler button { background:none; border:none; border-bottom:2px solid transparent;
+                     padding:8px 12px; color:var(--soluk); cursor:pointer; font:inherit; }
+  .sekmeler button.secili { color:var(--metin); border-bottom-color:var(--vurgu); font-weight:600; }
+  #ayarlar { flex:1; overflow:auto; padding:16px; display:none; }
+  #ayarlar.acik { display:block; }
+  #gunluk.gizli { display:none; }
+  .alan { margin-bottom:16px; max-width:520px; }
+  .alan label { display:block; font-weight:600; margin-bottom:4px; }
+  .alan .ipucu { color:var(--soluk); font-size:12px; margin-bottom:6px; }
+  .alan select, .alan input[type=text], .alan textarea {
+    width:100%; padding:6px 8px; border:1px solid var(--kenar); border-radius:4px;
+    background:var(--zemin); color:var(--metin); font:inherit; }
+  .alan textarea { min-height:70px; font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .ayarUyari { padding:8px 10px; border-radius:4px; margin-bottom:14px; font-size:13px;
+               background:rgba(217,119,6,.14); border:1px solid var(--uyari); }
+  .ayarSonuc { padding:8px 10px; border-radius:4px; margin-bottom:14px; font-size:13px; }
+  .ayarSonuc.iyi { background:rgba(22,163,74,.14); border:1px solid var(--iyi); }
+  .ayarSonuc.kotu { background:rgba(220,38,38,.14); border:1px solid var(--kotu); }
+  #ayarlar pre.hamyapilandirma { background:var(--ikincil); border:1px solid var(--kenar);
+    border-radius:4px; padding:10px; overflow:auto; font-size:12px; max-width:520px; }
 </style>
 </head>
 <body>
@@ -103,7 +125,12 @@ const panelHTML = `<!doctype html>
   <div id="sol"><div class="bos">Yükleniyor…</div></div>
   <div id="sag">
     <div class="baslik" id="detayBaslik"><h2>Bir proje seçin</h2></div>
+    <div class="sekmeler" id="sekmeler">
+      <button data-sekme="gunluk" class="secili">Günlük</button>
+      <button data-sekme="ayarlar">Ayarlar</button>
+    </div>
     <pre id="gunluk"></pre>
+    <div id="ayarlar"></div>
   </div>
 </main>
 <script>
@@ -267,6 +294,8 @@ const panelHTML = `<!doctype html>
       gunlugüCiz();
     });
 
+    if (acikSekme === 'ayarlar') ayarlariYukle();
+
     if (akis) { akis.close(); akis = null; }
     gunluk.textContent = '';
     if (!p || !p.serviceName) return;
@@ -291,6 +320,199 @@ const panelHTML = `<!doctype html>
         gunluk.innerHTML = '<span class="bos">Proje henüz başlatılmadı.</span>';
       }
     };
+  }
+
+  // --- Ayarlar sekmesi ---------------------------------------------------
+
+  var ayarlar = document.getElementById('ayarlar');
+  var sekmeler = document.getElementById('sekmeler');
+  var acikSekme = 'gunluk';
+
+  sekmeler.addEventListener('click', function (e) {
+    var d = e.target.closest('button[data-sekme]');
+    if (!d) return;
+    sekmeSec(d.dataset.sekme);
+  });
+
+  function sekmeSec(ad) {
+    acikSekme = ad;
+    Array.prototype.forEach.call(sekmeler.children, function (b) {
+      b.classList.toggle('secili', b.dataset.sekme === ad);
+    });
+    gunluk.classList.toggle('gizli', ad !== 'gunluk');
+    ayarlar.classList.toggle('acik', ad === 'ayarlar');
+    if (ad === 'ayarlar') ayarlariYukle();
+  }
+
+  function ayarlariYukle() {
+    if (!secili) {
+      ayarlar.innerHTML = '<div class="bos">Önce bir proje seçin.</div>';
+      return;
+    }
+    ayarlar.innerHTML = '<div class="bos">Yükleniyor…</div>';
+    fetch('/v1/projects/' + encodeURIComponent(secili) + '/config')
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+          return j;
+        });
+      })
+      .then(ayarlariCiz)
+      .catch(function (err) {
+        ayarlar.innerHTML = '<div class="ayarSonuc kotu"></div>';
+        ayarlar.firstChild.textContent = 'Ayarlar okunamadı: ' + err.message;
+      });
+  }
+
+  function ayarlariCiz(veri) {
+    var c = veri.config || {};
+    var php = c.php || {};
+    var secenekler = veri.options || {};
+    var surumler = secenekler.phpVersions || [];
+
+    // Yapılandırmada yazan sürüm kurulu değilse listeye ekleniyor.
+    // Aksi hâlde açılır kutu onu göstermez ve kaydetmek, kullanıcının
+    // hiç dokunmadığı bir alanı sessizce değiştirirdi.
+    var mevcut = php.version || '';
+    if (mevcut && surumler.indexOf(mevcut) < 0) surumler = [mevcut].concat(surumler);
+
+    var h = '';
+    h += '<div class="alan"><label for="aySunucu">Sunucu</label>' +
+      '<div class="ipucu">İsteği kim karşılasın: DevBox\'ın kendi sunucusu, Apache, ' +
+      'Nginx ya da başka bir adrese ileten vekil.</div>' +
+      '<select id="aySunucu">' +
+      (secenekler.servers || []).map(function (v) {
+        return '<option' + (v === c.server ? ' selected' : '') + '>' + kacar(v) + '</option>';
+      }).join('') + '</select></div>';
+
+    h += '<div class="alan"><label for="aySurum">PHP sürümü</label>' +
+      '<div class="ipucu">Yalnız kurulu sürümler listeleniyor. Kurmak için: ' +
+      '<b>devbox runtime install php@8.3</b></div>' +
+      '<select id="aySurum">' +
+      '<option value=""' + (mevcut ? '' : ' selected') + '>(en yenisi)</option>' +
+      surumler.map(function (v) {
+        return '<option' + (v === mevcut ? ' selected' : '') + '>' + kacar(v) + '</option>';
+      }).join('') + '</select></div>';
+
+    h += '<div class="alan"><label for="ayIsci">PHP işçi sayısı</label>' +
+      '<div class="ipucu">Boş bırakılırsa işlemci çekirdeği kadar.</div>' +
+      '<input id="ayIsci" type="text" inputmode="numeric" value="' +
+      (php.workers ? kacar(String(php.workers)) : '') + '"></div>';
+
+    h += '<div class="alan"><label for="ayUzanti">PHP uzantıları</label>' +
+      '<div class="ipucu">Virgülle ayırın: redis, gd, intl</div>' +
+      '<input id="ayUzanti" type="text" value="' +
+      kacar((php.extensions || []).join(', ')) + '"></div>';
+
+    h += '<div class="alan"><label for="ayTakma">Takma alan adları</label>' +
+      '<div class="ipucu">Virgülle ayırın. Her biri için sertifika üretilir.</div>' +
+      '<input id="ayTakma" type="text" value="' +
+      kacar((c.aliases || []).join(', ')) + '"></div>';
+
+    h += '<div class="alan"><button id="ayKaydet">Kaydet</button></div>';
+    h += '<div id="aySonuc"></div>';
+    h += '<div class="alan"><label>devbox.yaml</label>' +
+      '<div class="ipucu">Dosyanın diskteki hâli. Yorumlarınız korunur.</div>' +
+      '<pre class="hamyapilandirma" id="ayHam"></pre></div>';
+
+    ayarlar.innerHTML = h;
+    document.getElementById('ayHam').textContent = veri.raw || '';
+    document.getElementById('ayKaydet').addEventListener('click', ayarlariKaydet);
+
+    // Yüklenen değerler saklanıyor; kaydederken yalnız FARK gönderilecek.
+    yuklenen = formDegerleri();
+  }
+
+  var yuklenen = null;
+
+  // formDegerleri, formdaki alanları Update'in beklediği biçime çevirir.
+  function formDegerleri() {
+    var isci = document.getElementById('ayIsci').value.trim();
+    return {
+      'server': document.getElementById('aySunucu').value,
+      'php.version': document.getElementById('aySurum').value || null,
+      'php.workers': isci ? parseInt(isci, 10) : null,
+      'php.extensions': listeyeCevir(document.getElementById('ayUzanti').value),
+      'aliases': listeyeCevir(document.getElementById('ayTakma').value)
+    };
+  }
+
+  // listeyeCevir, virgülle ayrılmış metni diziye çevirir. Boş girdi
+  // null döner: alanın silinmesi demek.
+  function listeyeCevir(metin) {
+    var parcalar = metin.split(',').map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; });
+    return parcalar.length ? parcalar : null;
+  }
+
+  // ayni, iki değerin (metin, sayı, dizi ya da null) eşitliğini söyler.
+  function ayni(a, b) {
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    }
+    return a === b;
+  }
+
+  function ayarlariKaydet() {
+    var sonuc = document.getElementById('aySonuc');
+    var isci = document.getElementById('ayIsci').value.trim();
+    if (isci && !/^[0-9]+$/.test(isci)) {
+      sonuc.className = 'ayarSonuc kotu';
+      sonuc.textContent = 'İşçi sayısı tam sayı olmalı.';
+      return;
+    }
+
+    // Yalnız DEĞİŞEN alanlar gönderiliyor.
+    //
+    // Bu bir güvenlik payı, incelik değil. Formu olduğu gibi göndermek
+    // gerçek bir veri kaybına yol açmıştı: yükleme sırasında alanlar boş
+    // kaldığı için kaydetme, kullanıcının hiç dokunmadığı "php.version"ı
+    // ve o satırdaki yorumunu sildi. Fark göndermek, yükleme bir gün
+    // yine eksik kalırsa bile dokunulmayan alanı korur.
+    var suanki = formDegerleri();
+    var degisiklikler = {};
+    var sayi = 0;
+    for (var k in suanki) {
+      if (!yuklenen || !ayni(suanki[k], yuklenen[k])) {
+        degisiklikler[k] = suanki[k];
+        sayi++;
+      }
+    }
+    if (!sayi) {
+      sonuc.className = 'ayarSonuc';
+      sonuc.textContent = 'Değişiklik yok.';
+      return;
+    }
+
+    sonuc.className = 'ayarSonuc';
+    sonuc.textContent = 'Kaydediliyor…';
+
+    fetch('/v1/projects/' + encodeURIComponent(secili) + '/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes: degisiklikler })
+    })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+          return j;
+        });
+      })
+      .then(function (j) {
+        document.getElementById('ayHam').textContent = j.raw || '';
+        yuklenen = formDegerleri();
+        sonuc.className = 'ayarSonuc iyi';
+        sonuc.textContent = j.restartNeeded
+          ? 'Kaydedildi. Etkili olması için projeyi durdurup yeniden başlatın.'
+          : 'Kaydedildi.';
+        yenile();
+      })
+      .catch(function (err) {
+        sonuc.className = 'ayarSonuc kotu';
+        sonuc.textContent = 'Kaydedilemedi: ' + err.message;
+      });
   }
 
   sol.addEventListener('click', function (e) {
