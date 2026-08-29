@@ -50,6 +50,7 @@ doğrulandı. CI'nin hiç göremediği şeyler bunlar:
 | SMTP yakalayıcı: gönderilen posta kutuya düştü | ✅ |
 | **Ağdan erişim ayrımı:** site 200, denetleyici 403 | ✅ |
 | 443'ü tek süreç dinliyor (`::`, çift yığın) | ✅ |
+| İki proje, iki SMTP portu, iki ayrı posta kutusu | ✅ |
 
 Bu masaüstünde 80 ve 443 boştu; rezerve port yoluna girilmedi.
 
