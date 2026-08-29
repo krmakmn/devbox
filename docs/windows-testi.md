@@ -213,11 +213,32 @@ başlarken okunuyor), sonra tekrar deneyin.
 Komut satırından da doğrulanabilir — `-k` **olmadan**:
 
 ```powershell
-curl.exe https://magaza.test/
+curl.exe --ssl-revoke-best-effort https://magaza.test/
 ```
 
 `curl.exe` Windows'ta Schannel kullandığı için bu, işletim sisteminin
 güven zincirini sınar.
+
+**`--ssl-revoke-best-effort` neden gerekiyor?** Bayrak olmadan curl şunu
+verir:
+
+```
+curl: (35) schannel: CRYPT_E_NO_REVOCATION_CHECK — The revocation
+function was unable to check revocation for the certificate.
+```
+
+Bu bir güven hatası değil: curl'ün Schannel arka ucu sertifika için iptal
+listesi (CRL/OCSP) arıyor, yerel geliştirme sertifikasında öyle bir şey
+yok. Olmayacak da — CRL yayımlamak yerel bir araç için gerçek sunucu
+altyapısı demek; mkcert de koymuyor. Windows, yerel olarak kurulmuş bir
+köke zincirlenen sertifikada iptal denetimini zaten zorunlu tutmuyor;
+katı davranan curl'ün kendisi. **Tarayıcılar bu hatayı vermez** — Chrome,
+Edge ve Firefox'ta ekstra bir şey yapmanız gerekmez.
+
+Bayrak yalnız iptal aramasını kapatıyor, zincir doğrulamasını değil.
+Duman testi bunu olumsuz kontrolle kanıtlıyor: kök güven deposundan
+çıkarılınca aynı istek reddediliyor, geri kurulunca yeniden geçiyor.
+Yani `-k` ile aynı şey değil — `-k` doğrulamayı tümden kapatır.
 
 ### 4.2 Yan yüzeyler
 

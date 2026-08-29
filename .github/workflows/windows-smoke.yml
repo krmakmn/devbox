@@ -276,7 +276,18 @@ jobs:
           # --- MVP kabul kriteri: -k OLMADAN HTTPS ---
           # curl.exe Windows'ta Schannel kullanıyor; zincir doğrulaması
           # işletim sisteminin güven deposundan geçiyor.
-          $yanit = curl.exe --silent --show-error --fail https://magaza.test/duman 2>&1
+          #
+          # --ssl-revoke-best-effort neden var: curl'ün Schannel arka ucu
+          # iptal listesi (CRL/OCSP) bulamayınca bağlantıyı reddediyor
+          # (CRYPT_E_NO_REVOCATION_CHECK). Yerel geliştirme sertifikasında
+          # CRL dağıtım noktası yok ve olmayacak da — mkcert de koymuyor.
+          # Windows yerel olarak kurulmuş bir köke zincirlenen sertifikada
+          # iptal denetimini zaten zorunlu tutmuyor; katı olan curl.
+          #
+          # Bayrak YALNIZ iptal aramasını kapatıyor, zincir doğrulamasını
+          # değil. Bunu iddia etmiyoruz, aşağıdaki olumsuz kontrolle
+          # kanıtlıyoruz.
+          $yanit = curl.exe --silent --show-error --fail --ssl-revoke-best-effort https://magaza.test/duman 2>&1
           if ($LASTEXITCODE -ne 0) {
             Write-Host $yanit
             throw "https://magaza.test açılamadı (çıkış kodu $LASTEXITCODE)"
@@ -285,11 +296,34 @@ jobs:
           if ($yanit -notmatch 'DEVBOX-DUMAN-TESTI') { throw "beklenen yanıt gelmedi" }
           Write-Host "✓ https://magaza.test — Windows güven zinciriyle, uyarısız"
 
+          # --- Olumsuz kontrol: kök olmadan aynı istek reddedilmeli ---
+          # Bu olmadan yukarıdaki denetim bir şey kanıtlamaz: bayrak
+          # doğrulamayı tümden kapatıyor olsaydı da geçerdi.
+          .\devbox.exe trust uninstall -machine | Out-Null
+          Start-Sleep -Seconds 1
+          $olumsuz = curl.exe --silent --show-error --fail --ssl-revoke-best-effort https://magaza.test/duman 2>&1
+          $olumsuzKod = $LASTEXITCODE
+          .\devbox.exe trust install -machine | Out-Null
+          Start-Sleep -Seconds 1
+          if ($olumsuzKod -eq 0) {
+            throw "kök güven deposunda yokken bile bağlantı kabul edildi: zincir doğrulanmıyor"
+          }
+          Write-Host "olumsuz kontrol çıktısı: $olumsuz"
+          Write-Host "✓ kök kaldırılınca aynı istek reddediliyor (çıkış kodu $olumsuzKod)"
+
+          # Kök geri kuruldu; olumlu istek yeniden geçmeli.
+          $yeniden = curl.exe --silent --show-error --fail --ssl-revoke-best-effort https://magaza.test/duman 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host $yeniden
+            throw "kök geri kurulduktan sonra istek yine başarısız (çıkış kodu $LASTEXITCODE)"
+          }
+          Write-Host "✓ kök geri kurulunca istek yeniden geçiyor"
+
           # Çözücü AAAA için ::1 döndürüyor ve tarayıcılar IPv6'yı önce
           # dener. Uç ":443" dinlediği için Go çift yığın bir soket açıyor,
           # ama bunu varsaymak yerine ölçüyoruz: IPv6 kapalıysa kullanıcı
           # "sayfa açılmıyor" yaşar, sebebi de görünmez olur.
-          $v6 = curl.exe --silent --show-error --fail --ipv6 https://magaza.test/duman 2>&1
+          $v6 = curl.exe --silent --show-error --fail --ssl-revoke-best-effort --ipv6 https://magaza.test/duman 2>&1
           if ($LASTEXITCODE -ne 0) {
             Write-Host $v6
             throw "https://magaza.test IPv6 (::1) üzerinden açılamadı (çıkış kodu $LASTEXITCODE)"
@@ -305,13 +339,13 @@ jobs:
           Write-Host "✓ HTTP → HTTPS yönlendirmesi ($kod)"
 
           # --- Posta kutusu ve denetleyici ---
-          $posta = curl.exe --silent --fail https://mail.magaza.test/api/messages
+          $posta = curl.exe --silent --fail --ssl-revoke-best-effort https://mail.magaza.test/api/messages
           if ($LASTEXITCODE -ne 0) { throw "posta kutusu açılamadı" }
-          $denet = curl.exe --silent --fail https://inspect.magaza.test/api/state
+          $denet = curl.exe --silent --fail --ssl-revoke-best-effort https://inspect.magaza.test/api/state
           if ($LASTEXITCODE -ne 0) { throw "denetleyici açılamadı" }
           Write-Host "denetleyici durumu: $denet"
 
-          $kayitlar = curl.exe --silent --fail https://inspect.magaza.test/api/exchanges | ConvertFrom-Json
+          $kayitlar = curl.exe --silent --fail --ssl-revoke-best-effort https://inspect.magaza.test/api/exchanges | ConvertFrom-Json
           Write-Host "kaydedilen istek sayısı: $($kayitlar.Count)"
           if ($kayitlar.Count -lt 1) { throw "denetleyici hiçbir istek kaydetmemiş" }
           Write-Host "✓ posta kutusu ve denetleyici ayakta"
@@ -320,7 +354,7 @@ jobs:
           $istemci = New-Object Net.Mail.SmtpClient('127.0.0.1', 1025)
           $istemci.Send('uygulama@magaza.test', 'kerim@magaza.test', 'Windows duman testi', 'gövde')
           Start-Sleep -Seconds 1
-          $sonPosta = curl.exe --silent --fail https://mail.magaza.test/api/latest | ConvertFrom-Json
+          $sonPosta = curl.exe --silent --fail --ssl-revoke-best-effort https://mail.magaza.test/api/latest | ConvertFrom-Json
           Write-Host "yakalanan konu: $($sonPosta.subject)"
           if ($sonPosta.subject -ne 'Windows duman testi') { throw "posta yakalanmadı" }
           Write-Host "✓ SMTP yakalayıcı çalışıyor"
