@@ -46,6 +46,8 @@ doğrulandı. CI'nin hiç göremediği şeyler bunlar:
 | **İki site aynı anda, paylaşılan kenar üzerinden** | ✅ |
 | Birini durdurunca diğerinin çalışmaya devam etmesi | ✅ |
 | **İş Nesneleri:** zorla öldürmede 19 `php-cgi.exe`'nin hepsi öldü | ✅ |
+| Çekirdek süreç + panelden proje başlatma | ✅ |
+| SMTP yakalayıcı: gönderilen posta kutuya düştü | ✅ |
 
 Bu masaüstünde 80 ve 443 boştu; rezerve port yoluna girilmedi.
 
@@ -57,9 +59,15 @@ buydu: `php-cgi.exe` arkada birikir ve sonraki başlatmada port
 çakışması yapar.
 
 Hâlâ **denenmemiş** olanlar: Firefox'un NSS deposu (o makinede Firefox
-kurulu değildi), üç tarayıcının hepsi, posta kutusu ve denetleyici
-arayüzleri, ağdan erişim ayrımı, gerçek Apache/Nginx, veritabanları ve
+kurulu değildi), üç tarayıcının hepsi, denetleyici arayüzü ve "tekrar
+gönder", ağdan erişim ayrımı, gerçek Apache/Nginx, veritabanları ve
 Laragon'dan göç.
+
+**Bilinen eksik:** kenar ortaklaştırıldı ama SMTP portu (1025)
+ortaklaştırılmadı. İki proje birden çalışırken portu ilk başlayan alır,
+ikincisi uyarı verip devam eder — sessizce yanlış davranmıyor ama
+ikinci projenin postaları yakalanmıyor. Düzgün çözüm tek bir posta
+yakalayıcının çekirdekte durması.
 
 ### CI'nin yapamadıkları
 
