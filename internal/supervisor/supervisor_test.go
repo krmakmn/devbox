@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -102,12 +104,32 @@ func TestWaitsForTCPReadiness(t *testing.T) {
 	if elapsed < 500*time.Millisecond {
 		t.Errorf("Start %v sonra döndü; hazır olmayı beklemiyor", elapsed)
 	}
-	// Start döndüğünde servis gerçekten bağlantı kabul etmeli.
-	resp, err := http.Get("http://" + addr)
-	if err != nil {
-		t.Fatalf("Start döndükten sonra bağlanılamadı: %v", err)
+	// Start döndüğünde adres bağlantı kabul ediyor olmalı.
+	//
+	// Ayrım önemli: bağlantının REDDEDİLMESİ, hazır olma ölçütünün yalan
+	// söylediği anlamına gelir ve testi hemen düşürür. Kurulmuş bir
+	// bağlantının sıfırlanması ise başka bir şey — TCPReady'nin verdiği
+	// söz "port bağlantı kabul ediyor", "sunucu isteğinizi işleyecek"
+	// değil. Sunucunun kabul döngüsü ile ölçütün deneme bağlantısı
+	// arasındaki yarış, Windows geri döngüsünde ilk isteğin
+	// sıfırlanmasına yol açabiliyor (CI'da görüldü). Zaten bu zayıflık
+	// yüzünden veritabanı sürücüleri TCPReady değil LogReady kullanıyor;
+	// bkz. internal/database.
+	son := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get("http://" + addr)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			t.Fatalf("Start döndü ama adres bağlantı kabul etmiyor: %v", err)
+		}
+		if time.Now().After(son) {
+			t.Fatalf("Start döndükten sonra bağlanılamadı: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	resp.Body.Close()
 }
 
 func TestWaitsForLogReadiness(t *testing.T) {
