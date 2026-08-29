@@ -45,12 +45,21 @@ doğrulandı. CI'nin hiç göremediği şeyler bunlar:
 | **Tarayıcıda `https://magaza.test` — SSL uyarısı yok** | ✅ MVP kabul kriteri |
 | **İki site aynı anda, paylaşılan kenar üzerinden** | ✅ |
 | Birini durdurunca diğerinin çalışmaya devam etmesi | ✅ |
+| **İş Nesneleri:** zorla öldürmede 19 `php-cgi.exe`'nin hepsi öldü | ✅ |
 
 Bu masaüstünde 80 ve 443 boştu; rezerve port yoluna girilmedi.
 
+İş Nesneleri sınavı özellikle önemli: `internal/proc`'un Windows'a özgü
+`syscall`/`kernel32` kodu bugüne kadar yalnız Linux'ta sınanmıştı. Üç
+`devbox` süreci (çekirdek + iki proje) zorla öldürüldü ve 19 çocuk
+sürecin hepsi onlarla birlikte gitti. Laragon'un en bilinen kusuru tam
+buydu: `php-cgi.exe` arkada birikir ve sonraki başlatmada port
+çakışması yapar.
+
 Hâlâ **denenmemiş** olanlar: Firefox'un NSS deposu (o makinede Firefox
-kurulu değildi), üç tarayıcının hepsi, İş Nesneleri baskı altında,
-gerçek Apache/Nginx, veritabanları ve Laragon'dan göç.
+kurulu değildi), üç tarayıcının hepsi, posta kutusu ve denetleyici
+arayüzleri, ağdan erişim ayrımı, gerçek Apache/Nginx, veritabanları ve
+Laragon'dan göç.
 
 ### CI'nin yapamadıkları
 
