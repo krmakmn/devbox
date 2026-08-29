@@ -30,7 +30,31 @@ Server üzerinde şunları koşuyor
 | Kurulumun geri alınması (kural + sertifika) | ✅ |
 | Birim testleri (yarış dedektörüyle) | ✅ |
 
-CI'nin **yapamadıkları** ve bu yüzden size kalanlar:
+### Gerçek bir masaüstünde doğrulananlar
+
+Aşağıdakiler bir insanın Windows makinesinde, elle çalıştırılarak
+doğrulandı. CI'nin hiç göremediği şeyler bunlar:
+
+| Denenen | Sonuç |
+|---|---|
+| Kaynaktan derleme (Go 1.27, windows/amd64) | ✅ |
+| Kök sertifika **onay penceresi** gerçekten açılıyor | ✅ |
+| Sertifikanın `Cert:\CurrentUser\Root`'ta olması | ✅ parmak iziyle |
+| `devbox dns install` + üç ayrı çözümleme denetimi | ✅ |
+| Windows'un PHP'yi bulup havuzu kurması (16 işçi) | ✅ |
+| **Tarayıcıda `https://magaza.test` — SSL uyarısı yok** | ✅ MVP kabul kriteri |
+| **İki site aynı anda, paylaşılan kenar üzerinden** | ✅ |
+| Birini durdurunca diğerinin çalışmaya devam etmesi | ✅ |
+
+Bu masaüstünde 80 ve 443 boştu; rezerve port yoluna girilmedi.
+
+Hâlâ **denenmemiş** olanlar: Firefox'un NSS deposu (o makinede Firefox
+kurulu değildi), üç tarayıcının hepsi, İş Nesneleri baskı altında,
+gerçek Apache/Nginx, veritabanları ve Laragon'dan göç.
+
+### CI'nin yapamadıkları
+
+Bunlar bir insanın oturduğu makineyi gerektiriyor:
 
 - **UAC onay penceresi.** Koşucu zaten yükseltilmiş çalışıyor; yükseltme
   yolunun (`ShellExecuteExW "runas"`) kendisi hiç tetiklenmiyor.
