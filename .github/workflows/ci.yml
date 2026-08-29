@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Elle tetiklenebilir: dal üzerinde çalışırken PR açmadan da Windows
+  # birim testlerini koşturabilmek için. Bu olmadan daldaki bir
+  # değişiklik main'e ya da bir PR'a girene kadar Windows'ta hiç
+  # sınanmıyor.
+  workflow_dispatch:
 
 permissions:
   contents: read
