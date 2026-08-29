@@ -49,6 +49,15 @@ CI'nin **yapamadıkları** ve bu yüzden size kalanlar:
 ## 1. Gerekenler
 
 - Windows 10 (21H2+) ya da Windows 11
+- **PowerShell.** Bu belgedeki komutların tamamı PowerShell içindir,
+  Komut İstemi (cmd.exe) değil. İsteminiz `PS D:\devbox>` gibi
+  görünmeli; `D:\devbox>` görüyorsanız cmd'desiniz ve `$env:PATH`,
+  `Set-Content`, `Get-NetTCPConnection` gibi komutlar çalışmaz.
+  Başlat → "PowerShell".
+- **Komutları tek tek çalıştırın.** Kod blokları birden çok satır
+  içeriyor; hepsini tek satıra yapıştırırsanız kabuk onları tek bir
+  komutun argümanları sayar. Örneğin üç satırlık derleme bloğu tek
+  satırda `malformed import path "$env:PATH"` verir.
 - **Go 1.23+** — kaynaktan derlemek için: https://go.dev/dl/
 - İsteğe bağlı ama önerilen: Chrome, Edge **ve** Firefox (üçünün de
   denenmesi gerekiyor)
