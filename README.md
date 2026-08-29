@@ -181,6 +181,13 @@ adrese yönlendiriyor — jeton adres çubuğunda ve geçmişte kalmıyor. Çere
 getirdiği CSRF riski üç katmanla kapatılıyor: `SameSite=Strict`, durum değiştiren
 isteklerde `Origin` denetimi ve zaten var olan `Host` denetimi.
 
+VS Code eklentisi `editors/vscode` altında. İş mantığının tamamı (çekirdek
+süreçle konuşan katman ve `devbox.yaml` düzenleyicisi) VS Code API'sinden
+bağımsız iki dosyada; onlar düz node ile ve **gerçek bir `devboxd`'ye karşı**
+sınanıyor, CI'da da öyle koşuyor. Doğrulanmayan tek kısım editör yapıştırması
+(durum çubuğu, komut kaydı) — çalıştırmak VS Code gerektiriyor. Sınır eklentinin
+kendi README'sinde açıkça yazılı.
+
 Kaynak göstergeleri sürecin **kendisini** ölçüyor, ağacını değil: panelde
 "(ana süreç)" diye etiketli. Ağaç toplamı Linux'ta /proc'u taramak, Windows'ta
 anlık görüntü API'siyle bütün süreç listesini gezmek demek — ikincisi bu ortamda

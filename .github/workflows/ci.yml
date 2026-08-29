@@ -74,3 +74,39 @@ jobs:
         run: |
           GOOS=windows GOARCH=amd64 go build ./...
           GOOS=windows GOARCH=arm64 go build ./...
+
+  vscode-extension:
+    name: VS Code eklentisi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      # Eklentinin testleri gerçek bir devboxd'ye bağlanıyor; ikili
+      # olmadan yalnız birim testleri koşardı.
+      - name: devbox'ı derle
+        run: go build -o /tmp/devbox ./cmd/devbox
+
+      - name: Bağımlılıklar
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Derleme (tsc --strict)
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Testler (gerçek devboxd ile)
+        working-directory: editors/vscode
+        env:
+          DEVBOX_BIN: /tmp/devbox
+        run: npm test

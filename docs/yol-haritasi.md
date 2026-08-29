@@ -24,6 +24,7 @@
 | Denetlenen sürece durdurma sinyali göndermek yeter | **Sarmalayıcı komutlarda torun süreç ayakta kalıyor** | `sh -c`, `npm run dev` gibi komutlarda sinyal yalnız sarmalayıcıya gidiyordu; torun boruları açık tuttuğu için `cmd.Wait()` dönmüyor ve kapanış iki kez `StopTimeout` sürüyordu (Ctrl+C sonrası 20 saniye). Sinyal artık süreç ağacına ve SIGINT yerine SIGTERM ile gidiyor — POSIX, arka plana atılmış komutların SIGINT'i yok saymasını şart koşuyor. Kapanış 1,5 saniye |
 | Testin bağlanıp kapattığı port boş kalır | **Başka bir süreç portu hemen kapabiliyor** | TCPReady testi, sahte servis dinlemeye başlamadan bağlanıp "hazır olmayı beklemiyor" diye yanıltıcı bir hata veriyordu. Makinede paralel çalışan başka süreçler varken ortaya çıktı. freeAddr artık adresin gerçekten bağlantı reddettiğini doğruluyor |
 | Çerçeve kurucusuna hedef dizinin mutlak yolu verilir | **Kurucular yolu çalışma dizinine ekliyor** | create-vite'a mutlak yol verilince proje `/tmp/yeni/tmp/yeni/arayuz`'e kuruldu. Komut artık hedefin üst dizininde çalışıp yalnız adı alıyor. Gerçek kurucuyla ilk denemede çıktı |
+| YAML satırını `/^\s*xdebug:\s*(true\|false)\s*$/m` ile değiştirmek güvenli | **`\s` satır sonunu da yutuyor** | Eklenti, Xdebug'ı çevirirken kullanıcının `devbox.yaml`'ının son satır sonunu siliyordu — deposunda gereksiz bir fark. `[ \t]` ile sınırlandırıldı; test sabitliyor |
 | Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
@@ -482,7 +483,10 @@ birlikte ele alınacak.
   çağrılıyor (composer create-project, npm create, create-next-app, wp core
   download); düz PHP ve statik site için iki dosyalık kendi şablonumuz. Kurulan
   iskelet sonra algılamaya veriliyor. İçe/dışa aktarma ⏳
-- VS Code eklentisi: durum çubuğu, hızlı komutlar, Xdebug tek tıkla.
+- VS Code eklentisi: durum çubuğu, hızlı komutlar, Xdebug tek tıkla. ✅
+  `editors/vscode`. İş mantığı editör API'sinden bağımsız iki dosyada ve gerçek
+  bir devboxd'ye karşı sınanıyor (CI'da da); doğrulanmayan tek kısım editör
+  yapıştırması, çünkü çalıştırmak VS Code gerektiriyor. `.vsix` yayını Faz 8'de.
 - **Kabul:** Beta kullanıcılarının %80'i GUI ile kurulumdan ilk `https://` sayfaya
   10 dakikanın altında ulaşıyor (ölçülür).
 

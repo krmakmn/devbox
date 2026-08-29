@@ -6,10 +6,10 @@
 *.dll
 *.syso
 
-# Tauri / Node
+# Node (VS Code eklentisi)
 node_modules/
-/gui/src-tauri/target/
-/gui/dist/
+/editors/vscode/out/
+*.vsix
 
 # Yerel ortam ve gizli veriler
 *.pem

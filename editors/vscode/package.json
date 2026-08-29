@@ -1,0 +1,50 @@
+{
+  "name": "devbox",
+  "displayName": "DevBox",
+  "description": "DevBox yerel geliştirme ortamını VS Code içinden yönetin",
+  "version": "0.1.0",
+  "publisher": "krmakmn",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/krmakmn/devbox" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["workspaceContains:devbox.yaml"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "devbox.up", "title": "DevBox: Projeyi başlat" },
+      { "command": "devbox.down", "title": "DevBox: Projeyi durdur" },
+      { "command": "devbox.openSite", "title": "DevBox: Siteyi tarayıcıda aç" },
+      { "command": "devbox.openPanel", "title": "DevBox: Denetim panelini aç" },
+      { "command": "devbox.openMailbox", "title": "DevBox: Posta kutusunu aç" },
+      { "command": "devbox.toggleXdebug", "title": "DevBox: Xdebug'ı aç/kapat" },
+      { "command": "devbox.showLogs", "title": "DevBox: Günlüğü göster" }
+    ],
+    "configuration": {
+      "title": "DevBox",
+      "properties": {
+        "devbox.executable": {
+          "type": "string",
+          "default": "devbox",
+          "description": "devbox çalıştırılabilirinin yolu."
+        },
+        "devbox.refreshInterval": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "description": "Durum çubuğunun yenilenme aralığı (saniye)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "node --test out/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
