@@ -110,3 +110,43 @@ jobs:
         env:
           DEVBOX_BIN: /tmp/devbox
         run: npm test
+
+  acme-compat:
+    name: ACME uyumluluğu (lego)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      # Birim testleri protokolü bizim anladığımız gibi sınıyor; yanlış
+      # anlaşılan bir yer varsa test de aynı yanlışı yapar. Bağımsız
+      # yazılmış bir istemcinin akışı baştan sona tamamlaması, protokolü
+      # gerçekten doğru uyguladığımızın kanıtı.
+      - name: devbox'ı derle
+        run: go build -o /tmp/devbox ./cmd/devbox
+
+      - name: ACME sunucusunu başlat
+        run: |
+          DEVBOX_HOME=/tmp/acme-ci /tmp/devbox acme serve \
+            -addr 127.0.0.1:14000 \
+            -map api.magaza.test=127.0.0.1:15080 &
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:14000/acme/directory > /dev/null; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "ACME sunucusu açılmadı"; exit 1
+
+      - name: lego ile sertifika al
+        working-directory: tests/acme-client
+        run: go run . http://127.0.0.1:14000/acme/directory api.magaza.test 15080
+
+      - name: Zinciri kök sertifikayla doğrula
+        run: |
+          curl -sf http://127.0.0.1:14000/acme/root.crt -o /tmp/root.crt
+          openssl verify -CAfile /tmp/root.crt tests/acme-client/alinan.crt

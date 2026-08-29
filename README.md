@@ -3,7 +3,7 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 6 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 7 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
 > hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/acme` | Yerel ACME (RFC 8555) sunucusu: JWS doğrulama, http-01, CSR imzalama |
 | `internal/procstat` | Süreçlerin bellek ve işlemci kullanımı (Linux /proc, Windows psapi) |
 | `internal/scaffold` | Proje şablonları: çerçevenin kendi kurucusunu çağırır |
 | `internal/projects` | Proje kaydı ve projeleri çekirdek süreç üzerinden çalıştırma |
@@ -150,6 +151,32 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+ACME tarafında: `devbox acme serve` yerel bir RFC 8555 sunucusu açıyor. Amaç,
+DevBox'ın dizinine girmeyen şeylerin de sertifika alabilmesi — WSL2'deki bir
+konteynerde koşan Caddy, Traefik ya da certbot. Onların bildiği tek dil ACME.
+Pebble ya da Smallstep gibi hazır bir sunucu ikinci bir CA demek olurdu;
+kullanıcının iki kök sertifikaya güvenmesi gerekirdi. Bizimki zaten kurulu olan
+CA'yı kullanıyor.
+
+Bir tasarım ayrıntısı ilginç: http-01 doğrulaması alan adının 80. portuna
+bağlanır, ama o portu zaten DevBox'ın kenar vekili tutuyor — yani konteynerdeki
+istemcinin sunduğu meydan okumayı değil, kenarın 404'ünü görürdük. Bu yüzden
+`-map alan=adres:port` ile doğrulamanın nereye gideceği söylenebiliyor; istek
+alan adına gidiyormuş gibi görünüyor (Host başlığı korunuyor) ama soket
+yönlendirilen adrese açılıyor.
+
+Sertifika **yalnız doğrulanmış adlar** için veriliyor; CSR'ın kendi SAN
+listesine güvenilmiyor. Ona güvenmek, bir meydan okumayı geçen istemcinin
+istediği adı — `banka.example.com` dahil — alması demekti. Bir test bunu
+sabitliyor.
+
+Doğrulama tarafında: protokolü kendi testlerimizle sınamak yetmez, çünkü yanlış
+anladığım bir yer varsa test de aynı yanlışı yapar. Bu yüzden `tests/acme-client`
+altında **ayrı bir Go modülü** var; bağımsız yazılmış `lego` istemcisi akışı
+baştan sona tamamlıyor ve CI bunu her itmede koşuyor. Ayrı modül olması, `lego`nun
+DevBox'ın bağımlılığı olmaması demek. RFC 7638 parmak izi de RFC'deki bilinen
+vektörle sınanıyor.
 
 Arayüz tarafında: yol haritası Tauri masaüstü uygulaması diyordu. Tauri bir Rust
 derleme zinciri ve platform başına bir web görünümü kütüphanesi gerektiriyor —

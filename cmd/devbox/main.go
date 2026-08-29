@@ -80,6 +80,10 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "cert":
+		return runCert(args[1:])
+	case "acme":
+		return runACME(args[1:])
 	case "new":
 		return runNew(args[1:])
 	case "project", "projects":
@@ -117,6 +121,8 @@ Kullanım:
   devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
   devbox project <alt komut>  projeleri kayda ekle, listele, çıkar
   devbox ui                   denetim panelini tarayıcıda aç
+  devbox acme serve           yerel ACME sunucusu (konteynerler sertifika alsın)
+  devbox cert <alt komut>     sertifikaları listele, üret, sil
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster
   devbox logs [-f] <servis>   servisin günlüğünü göster

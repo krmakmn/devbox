@@ -33,6 +33,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -436,4 +437,137 @@ func validateName(name string) error {
 // dosya adında kullanılamaz.
 func safeFileName(name string) string {
 	return strings.ReplaceAll(name, "*", "_wildcard_")
+}
+
+// SignCSR, bir sertifika isteğini (CSR) yerel CA ile imzalar.
+//
+// ACME sunucusu için var: orada anahtar çifti istemcide üretiliyor ve
+// bize yalnız istek geliyor. Store'un kendi issue'sundan farkı bu —
+// burada özel anahtarı görmüyoruz, dolayısıyla saklamıyoruz da.
+//
+// # CSR'daki hangi alanlara güveniliyor
+//
+// Yalnız açık anahtar ve imza. Konu adı ve SAN listesi çağırandan
+// (ACME akışında doğrulanmış alan adlarından) geliyor — CSR'ın kendi
+// SAN'ına güvenmek, doğrulanmamış bir ad için sertifika vermek demek
+// olurdu.
+func (s *Store) SignCSR(csr *x509.CertificateRequest, names []string) ([]byte, error) {
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("certs: CSR imzası geçersiz: %w", err)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("certs: imzalanacak alan adı yok")
+	}
+	for _, name := range names {
+		if err := validateName(name); err != nil {
+			return nil, err
+		}
+	}
+
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   names[0],
+			Organization: []string{"DevBox"},
+		},
+		NotBefore:             now.Add(-clockSkew),
+		NotAfter:              now.Add(leafTTL),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:              names,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, s.root, csr.PublicKey, s.rootKey)
+	if err != nil {
+		return nil, fmt.Errorf("certs: CSR imzalanamadı: %w", err)
+	}
+	return der, nil
+}
+
+// Root, kök sertifikanın kendisi (zincire eklemek için).
+func (s *Store) Root() *x509.Certificate { return s.root }
+
+// Info, verilmiş bir sertifikanın özeti.
+type Info struct {
+	Name      string    `json:"name"`
+	NotBefore time.Time `json:"notBefore"`
+	NotAfter  time.Time `json:"notAfter"`
+	DNSNames  []string  `json:"dnsNames"`
+	Path      string    `json:"path"`
+
+	// Expired ve NeedsRenewal, kullanıcıya durumu tek bakışta söyler.
+	Expired      bool `json:"expired"`
+	NeedsRenewal bool `json:"needsRenewal"`
+}
+
+// List, depodaki site sertifikalarını döner.
+func (s *Store) List() ([]Info, error) {
+	entries, err := os.ReadDir(s.sitesDir())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now()
+	out := make([]Info, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".crt") {
+			continue
+		}
+		path := filepath.Join(s.sitesDir(), name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		out = append(out, Info{
+			Name:         cert.Subject.CommonName,
+			NotBefore:    cert.NotBefore,
+			NotAfter:     cert.NotAfter,
+			DNSNames:     cert.DNSNames,
+			Path:         path,
+			Expired:      now.After(cert.NotAfter),
+			NeedsRenewal: now.Add(renewBefore).After(cert.NotAfter),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// Remove, bir sitenin sertifikasını ve anahtarını siler.
+//
+// Bir sonraki istekte yenisi üretiliyor; komut "bozulmuş sertifikayı at,
+// baştan üret" için var.
+func (s *Store) Remove(name string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	certPath, keyPath := s.siteCertPath(name), s.siteKeyPath(name)
+	if _, err := os.Stat(certPath); err != nil {
+		return fmt.Errorf("certs: %s için sertifika yok", name)
+	}
+	s.mu.Lock()
+	delete(s.cache, name)
+	s.mu.Unlock()
+
+	if err := os.Remove(certPath); err != nil {
+		return err
+	}
+	return os.Remove(keyPath)
 }

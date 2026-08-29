@@ -492,7 +492,10 @@ birlikte ele alınacak.
   10 dakikanın altında ulaşıyor (ölçülür).
 
 ### Faz 7 — İleri yetenekler · 6 hafta
-- **Yerel ACME sunucusu** (`acme_server`) + `devbox cert` komutları.
+- **Yerel ACME sunucusu** + `devbox cert` komutları. ✅ `internal/acme`,
+  `devbox acme serve`. Caddy'nin `acme_server`'ı yerine kendi sunucumuz: hazır
+  bir sunucu ikinci bir CA demek olurdu, oysa bizimki zaten güven depolarında.
+  Bağımsız `lego` istemcisiyle uçtan uca doğrulandı (CI'da da koşuyor).
 - **Konteyner sürücüsü:** `devbox.yaml`'daki bir servis `driver: docker` ile
   konteynerde koşabilir; kenar proxy onu da yönlendirir. Yerel/konteyner karışık.
 - **HTTP denetleyicisi:** kenardan aynalanan istek/yanıt akışı, gövde ve başlık
