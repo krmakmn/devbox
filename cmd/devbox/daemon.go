@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/krmakmn/devbox/internal/api"
+	"github.com/krmakmn/devbox/internal/certs"
+	"github.com/krmakmn/devbox/internal/dns"
+	"github.com/krmakmn/devbox/internal/edge"
 	"github.com/krmakmn/devbox/internal/paths"
 	"github.com/krmakmn/devbox/internal/procstat"
 	"github.com/krmakmn/devbox/internal/projects"
@@ -42,6 +45,12 @@ func runDaemon(args []string) error {
 	var services serviceList
 	fs.Var(&services, "service", `ad=komut (birden çok kez verilebilir), ör. -service "mysql=mysqld --datadir=C:\veri"`)
 	addr := fs.String("addr", "127.0.0.1:0", "API dinleme adresi (0 = işletim sistemi seçsin)")
+	httpAddr := fs.String("http", ":80", "paylaşılan kenarın HTTP adresi")
+	httpsAddr := fs.String("https", ":443", "paylaşılan kenarın HTTPS adresi")
+	noEdge := fs.Bool("no-edge", false, "paylaşılan kenarı açma (projeler kendi portlarını açar)")
+	noDNS := fs.Bool("no-dns", false, "yerel çözücüyü çalıştırma")
+	dnsAddr := fs.String("dns", dns.DefaultAddr, "çözücünün dinleyeceği adres")
+	suffix := fs.String("suffix", "test", "çözücünün sahipleneceği son ek")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `Kullanım: devbox daemon [seçenekler]
 
@@ -99,6 +108,54 @@ devbox ps / logs onları oradan okur.
 		Logger:     logger,
 	}
 
+	// Paylaşılan kenar: 80/443'ü tek bir dinleyici tutuyor ve istekleri
+	// host adına göre projelere dağıtıyor. Her proje kendi kenarını
+	// açsaydı ikincisi portu alamaz, aynı anda tek site çalışabilirdi —
+	// oysa birden çok siteyi yan yana çalıştırmak bu aracın var oluş
+	// sebebi.
+	var edgeSrv *edge.Server
+	if !*noEdge {
+		store, err := certs.Open(paths.CertsDir())
+		if err != nil {
+			return fmt.Errorf("sertifika deposu açılamadı: %w", err)
+		}
+		shared := edge.New()
+		shared.Logger = logger
+		if _, port := splitPort(*httpsAddr); port != "" {
+			shared.HTTPSPort = port
+		}
+		runner.Edge = shared
+
+		edgeSrv = &edge.Server{
+			Edge:      shared,
+			HTTPAddr:  *httpAddr,
+			HTTPSAddr: *httpsAddr,
+			TLSConfig: store.TLSConfig(),
+		}
+		// Dinleyiciler API'den önce açılıyor: port alınamıyorsa
+		// kullanıcıya bunu, panel adresini yazdırmadan önce söylemeliyiz.
+		if err := edgeSrv.Listen(); err != nil {
+			return bindHatasi(context.Background(), err)
+		}
+	}
+
+	// Çözücü de çekirdeğin işi. Projeler paylaşılan kenar kipinde kendi
+	// çözücülerini açmıyor; biri açsaydı ilki dışındakiler "adres
+	// kullanımda" ile düşerdi.
+	if !*noDNS && !*noEdge {
+		resolver := dns.New(dns.Config{
+			Addr:     *dnsAddr,
+			Suffixes: []string{*suffix},
+			Logger:   logger,
+		})
+		if err := resolver.Start(); err != nil {
+			logger.Warn("yerel çözücü başlatılamadı; alan adı çözümlemesi elle ayarlanmalı",
+				"hata", err)
+		} else {
+			defer resolver.Close()
+		}
+	}
+
 	token, err := api.LoadOrCreateToken(tokenPath())
 	if err != nil {
 		return err
@@ -137,9 +194,26 @@ devbox ps / logs onları oradan okur.
 	logger.Info("devboxd başladı", "adres", listenAddr, "servis", len(sup.Status()))
 	fmt.Printf("\n  Denetim paneli: http://%s/\n  Açmak için: devbox ui\n\n", listenAddr)
 
+	edgeCtx, edgeCancel := context.WithCancel(context.Background())
+	defer edgeCancel()
+	edgeErr := make(chan error, 1)
+	if edgeSrv != nil {
+		go func() { edgeErr <- edgeSrv.Serve(edgeCtx) }()
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+
+	select {
+	case <-stop:
+	case err := <-edgeErr:
+		// Kenar düşerse çekirdeği ayakta tutmanın anlamı yok: hiçbir
+		// site açılmaz ve kullanıcı sebebi göremez.
+		if err != nil {
+			logger.Error("paylaşılan kenar durdu", "hata", err)
+			return err
+		}
+	}
 
 	logger.Info("devboxd kapatılıyor")
 	return nil

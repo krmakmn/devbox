@@ -304,6 +304,38 @@ Duman testi bunu olumsuz kontrolle kanıtlıyor: kök güven deposundan
 çıkarılınca aynı istek reddediliyor, geri kurulunca yeniden geçiyor.
 Yani `-k` ile aynı şey değil — `-k` doğrulamayı tümden kapatır.
 
+### 4.1.1 Günlük kullanım — her proje için terminal gerekmez
+
+Yukarıdaki `devbox up` akışı **tek projeyi elle denemek** içindir. Gerçek
+kullanımda projeleri çekirdek süreç yönetir ve hepsi aynı anda çalışır:
+
+```powershell
+# Her proje için bir kez
+cd C:\kod\magaza
+devbox init
+devbox project add
+
+# Bilgisayar başına bir kez, arka planda
+devbox daemon
+
+# Paneli aç, projeleri listeden başlat/durdur
+devbox ui
+```
+
+Çekirdek süreç 80 ve 443'ü **tek başına** dinler ve istekleri alan adına
+göre projelere dağıtır; çözücüyü de o çalıştırır. Her proje kendi
+işleyicisini yalnız geri döngüde açar.
+
+Bu, bir mimari düzeltmenin sonucu: önceden her proje kendi kenarını
+80/443'te açıyordu, dolayısıyla **aynı anda tek proje** çalışabiliyordu —
+ikincisi portu alamıyordu. Laragon'un yerine geçmek isteyen bir araçta
+en temel eksik buydu.
+
+- [ ] İki projeyi panelden aynı anda başlatın; ikisi de kendi alan
+      adından açılıyor mu?
+- [ ] Birini durdurun; onun alan adı 404 verirken diğeri çalışmaya devam
+      ediyor mu?
+
 ### 4.2 Yan yüzeyler
 
 - [ ] `https://mail.magaza.test` açılıyor mu?

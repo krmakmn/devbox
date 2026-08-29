@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/krmakmn/devbox/internal/edge"
 	"github.com/krmakmn/devbox/internal/procstat"
 	"github.com/krmakmn/devbox/internal/supervisor"
 )
@@ -47,10 +48,23 @@ type Runner struct {
 	// (testlerde port değiştirmek için).
 	ExtraArgs []string
 
+	// Edge, paylaşılan kenar. Verilirse projeler 80/443'ü kendileri
+	// açmaz: her biri işleyicisini loopback'te sunar, biz de alan
+	// adlarını burada bu adrese yönlendiririz.
+	//
+	// Bu, aynı anda birden çok projenin çalışabilmesinin tek yolu —
+	// her proje kendi kenarını açsaydı ikincisi 80'i alamazdı.
+	Edge *edge.Edge
+
 	Logger *slog.Logger
 
 	mu       sync.Mutex
 	services map[string]*supervisor.Service
+	// routes, her proje için kenara kaydettiğimiz alan adları. Durdurma
+	// ve yeniden başlatmada eski kayıtları kaldırabilmek için tutuluyor;
+	// aksi hâlde kapalı bir projenin alan adı kenarda asılı kalır ve
+	// istekler ölü bir adrese gider.
+	routes map[string][]string
 }
 
 // ReadyLine, "devbox up"ın hazır olduğunda yazdığı satırın parçası.
@@ -165,7 +179,76 @@ func (r *Runner) Start(ctx context.Context, name string) (Status, error) {
 	if err := svc.Start(ctx); err != nil {
 		return Status{}, fmt.Errorf("projects: %s başlatılamadı: %w", name, err)
 	}
+	if err := r.register(name, svc); err != nil {
+		// Proje ayakta ama kenara bağlanamadı: alan adı açılmaz.
+		// Sessizce geçmek, kullanıcıyı "çalışıyor görünüyor ama
+		// açılmıyor" durumunda bırakır.
+		svc.Stop()
+		return Status{}, err
+	}
 	return r.status(p), nil
+}
+
+// register, projenin bildirdiği adresi paylaşılan kenara işler.
+func (r *Runner) register(name string, svc *supervisor.Service) error {
+	if r.Edge == nil {
+		return nil
+	}
+	ep, ok := ParseEndpoint(svc.Logs().SinceStart())
+	if !ok {
+		return fmt.Errorf("projects: %s iç adresini bildirmedi; paylaşılan kenara bağlanamadı", name)
+	}
+
+	r.unregister(name)
+
+	target := "http://" + ep.Addr
+	var kayitli []string
+	for _, host := range ep.Hosts {
+		if err := r.Edge.Proxy(host, target); err != nil {
+			r.removeHosts(kayitli)
+			return fmt.Errorf("projects: %s için %s yönlendirilemedi: %w", name, host, err)
+		}
+		kayitli = append(kayitli, host)
+	}
+	// Posta kutusu ve denetleyici ağa açılmamalı. Kısıtı burada
+	// uyguluyoruz çünkü proje sürecinin gördüğü uzak adres her zaman
+	// 127.0.0.1: araya biz giriyoruz. İçerideki denetim her isteği
+	// geçirirdi.
+	for _, host := range ep.LocalOnly {
+		h, err := edge.ProxyHandler(host, target, r.Logger)
+		if err != nil {
+			r.removeHosts(kayitli)
+			return fmt.Errorf("projects: %s için %s yönlendirilemedi: %w", name, host, err)
+		}
+		r.Edge.Handle(host, edge.LoopbackOnly(h))
+		kayitli = append(kayitli, host)
+	}
+
+	r.mu.Lock()
+	if r.routes == nil {
+		r.routes = make(map[string][]string)
+	}
+	r.routes[name] = kayitli
+	r.mu.Unlock()
+	return nil
+}
+
+// unregister, projenin kenardaki alan adlarını kaldırır.
+func (r *Runner) unregister(name string) {
+	r.mu.Lock()
+	hosts := r.routes[name]
+	delete(r.routes, name)
+	r.mu.Unlock()
+	r.removeHosts(hosts)
+}
+
+func (r *Runner) removeHosts(hosts []string) {
+	if r.Edge == nil {
+		return
+	}
+	for _, host := range hosts {
+		r.Edge.Remove(host)
+	}
 }
 
 // Stop, projeyi durdurur.
@@ -174,6 +257,7 @@ func (r *Runner) Stop(name string) (Status, error) {
 	if !ok {
 		return Status{}, fmt.Errorf("projects: kayıtlı proje bulunamadı: %q", name)
 	}
+	r.unregister(name)
 	r.mu.Lock()
 	svc := r.services[name]
 	r.mu.Unlock()
@@ -203,7 +287,13 @@ func (r *Runner) service(p Project) (*supervisor.Service, error) {
 		return svc, nil
 	}
 
-	args := append([]string{"up", "-dir", p.Dir}, r.ExtraArgs...)
+	args := []string{"up", "-dir", p.Dir}
+	if r.Edge != nil {
+		// Port 0: işletim sistemi seçsin. Sabit port vermek, iki projeyi
+		// aynı anda çalıştırmayı yeniden imkânsız kılardı.
+		args = append(args, "-internal", "127.0.0.1:0")
+	}
+	args = append(args, r.ExtraArgs...)
 	svc, err := r.Supervisor.Add(supervisor.Config{
 		Name:    ServiceName(p.Name),
 		Exec:    r.Executable,

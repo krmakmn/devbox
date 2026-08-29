@@ -86,6 +86,7 @@ func runUp(args []string) error {
 		dnsAddr   = fs.String("dns", dns.DefaultAddr, "çözücünün dinleyeceği adres")
 		phpPath   = fs.String("php", "", "php-cgi yolu (boşsa DevBox'ın kurduğu runtime ya da PATH)")
 		serverBin = fs.String("server-bin", "", "apache/nginx çalıştırılabiliri; verilirse DevBox onu da yönetir")
+		internal  = fs.String("internal", "", "80/443'ü açmak yerine işleyiciyi bu loopback adresinde düz HTTP ile sun (paylaşılan kenar için)")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `Kullanım: devbox up [seçenekler]
@@ -166,7 +167,10 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		return err
 	}
 
-	if !*noDNS {
+	// Paylaşılan kenar kipinde çözücü çekirdek sürecin işi; her proje
+	// kendi çözücüsünü açmaya kalkarsa ilki dışındakiler "adres kullanımda"
+	// uyarısı verir ve günlük anlamsız gürültüyle dolar.
+	if !*noDNS && *internal == "" {
 		if err := up.startDNS(*dnsAddr, cfg.Domain); err != nil {
 			// Çözücü açılamazsa proje yine çalışır; kullanıcı hosts
 			// dosyasıyla ya da doğrudan adresle erişebilir.
@@ -175,24 +179,16 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		}
 	}
 
-	srv := &edge.Server{Edge: e, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr, TLSConfig: store.TLSConfig()}
-	if up.inspector != nil {
-		inspectHost := cfg.InspectHost()
-		recorder := up.inspector
-		srv.Wrap = func(next http.Handler) http.Handler {
-			recorded := recorder.Middleware(next)
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Denetleyicinin kendi trafiği kaydedilmiyor: her
-				// yoklama yeni bir kayıt üretir, o kayıt akışa düşer,
-				// arayüz yeniden yoklar — kendini besleyen bir döngü.
-				if hostOnly(r.Host) == inspectHost {
-					next.ServeHTTP(w, r)
-					return
-				}
-				recorded.ServeHTTP(w, r)
-			})
-		}
+	wrap := up.inspectorWrap()
+
+	// Paylaşılan kenar kipi: 80/443'ü çekirdek süreç dinliyor, biz
+	// yalnız kendi işleyicimizi loopback'te sunup adresi bildiriyoruz.
+	if *internal != "" {
+		return up.serveInternal(ctx, cancel, e, wrap, *internal)
 	}
+
+	srv := &edge.Server{Edge: e, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr, TLSConfig: store.TLSConfig()}
+	srv.Wrap = wrap
 
 	// Dinleyiciler "hazır" demeden ÖNCE açılıyor. Gerçek Windows'ta
 	// çıkan bir kusurdu: 80 rezerve bir aralığa düştüğünde kullanıcı
@@ -318,6 +314,11 @@ type upSession struct {
 	phpError   error
 	backendURL string
 	confPath   string
+
+	// localHosts, yalnız makinenin kendisinden açılabilecek alan
+	// adları. Paylaşılan kenar kipinde kısıtı uygulayacak taraf kenar
+	// olduğu için ona bildirmemiz gerekiyor.
+	localHosts []string
 }
 
 func (u *upSession) Close() {
@@ -587,6 +588,7 @@ func (u *upSession) startMail(e *edge.Edge) {
 	// o ağa açılmamalı.
 	e.Handle(u.cfg.MailHost(), edge.LoopbackOnly(
 		&mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()}))
+	u.localHosts = append(u.localHosts, u.cfg.MailHost())
 }
 
 // projectEnv, süreçlere ve zamanlanmış görevlere verilecek ortam
@@ -654,6 +656,7 @@ func (u *upSession) startInspector(e *edge.Edge, store *certs.Store, httpsAddr s
 		TLSConfig: &tls.Config{RootCAs: store.RootPool()},
 		Domain:    u.cfg.Domain,
 	}))
+	u.localHosts = append(u.localHosts, u.cfg.InspectHost())
 	store.Certificate(u.cfg.InspectHost())
 }
 
@@ -897,4 +900,136 @@ func hostOnly(host string) string {
 		return h
 	}
 	return host
+}
+
+// inspectorWrap, denetleyicinin kayıt katmanını üretir. Denetleyici
+// kapalıysa nil döner ve kenar hiçbir şey sarmaz.
+func (u *upSession) inspectorWrap() func(http.Handler) http.Handler {
+	if u.inspector == nil {
+		return nil
+	}
+	inspectHost := u.cfg.InspectHost()
+	recorder := u.inspector
+	return func(next http.Handler) http.Handler {
+		recorded := recorder.Middleware(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Denetleyicinin kendi trafiği kaydedilmiyor: her yoklama
+			// yeni bir kayıt üretir, o kayıt akışa düşer, arayüz
+			// yeniden yoklar — kendini besleyen bir döngü.
+			if hostOnly(r.Host) == inspectHost {
+				next.ServeHTTP(w, r)
+				return
+			}
+			recorded.ServeHTTP(w, r)
+		})
+	}
+}
+
+// serveInternal, projeyi paylaşılan kenarın arkasında sunar.
+//
+// Burada 80/443 açılmıyor ve TLS sonlandırılmıyor; ikisi de çekirdek
+// sürecin işi. Bunun sebebi mimari: her proje kendi kenarını açarsa
+// ikinci proje 80'i alamaz ve aynı anda tek site çalışabilir — oysa
+// birden çok siteyi yan yana çalıştırmak bu aracın var oluş sebebi.
+func (u *upSession) serveInternal(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	e *edge.Edge,
+	wrap func(http.Handler) http.Handler,
+	addr string,
+) error {
+	if err := requireLoopback(addr); err != nil {
+		return err
+	}
+
+	var h http.Handler = e
+	if wrap != nil {
+		h = wrap(h)
+	}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return bindHatasi(ctx, &edge.BindError{Addr: addr, Port: portOfAddr(addr), Err: err})
+	}
+
+	public := make([]string, 0, 1+len(u.cfg.Aliases))
+	public = append(public, u.cfg.Domain)
+	public = append(public, u.cfg.Aliases...)
+
+	line, err := projects.FormatEndpoint(projects.Endpoint{
+		Addr:      ln.Addr().String(),
+		Hosts:     public,
+		LocalOnly: u.localHosts,
+	})
+	if err != nil {
+		ln.Close()
+		return err
+	}
+	// Bildirim, hazır satırından ÖNCE yazılıyor: çekirdek süreç projeyi
+	// hazır sayar saymaz adresi arıyor, sonra yazarsak bulamaz.
+	fmt.Println(line)
+
+	fmt.Printf("\n  %s%s%s\n\n", u.cfg.Name, projects.ReadyLine, u.cfg.Domain)
+	u.printSummary()
+
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 15 * time.Second}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stop
+		cancel()
+	}()
+
+	errc := make(chan error, 1)
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			errc <- err
+		}
+	}()
+
+	select {
+	case err := <-errc:
+		srv.Close()
+		return err
+	case <-ctx.Done():
+		shutdownCtx, done := context.WithTimeout(context.Background(), 10*time.Second)
+		defer done()
+		return srv.Shutdown(shutdownCtx)
+	}
+}
+
+// requireLoopback, iç sunucunun yalnız geri döngüde açılmasını zorunlu
+// kılar.
+//
+// Bu bir güvenlik denetimi, kolaylık değil: iç sunucu düz HTTP konuşuyor
+// ve posta kutusu ile denetleyicinin "yalnız yerel" kısıtı paylaşılan
+// kenarda uygulanıyor. Adres ağa açılırsa hem şifresiz trafik hem de
+// kısıtsız posta kutusu dışarıya çıkar.
+func requireLoopback(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("-internal adresi \"host:port\" olmalı: %q", addr)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf(
+			"-internal yalnız geri döngü adresi kabul eder (127.0.0.1 ya da ::1), verilen: %q\n"+
+				"Bu adres düz HTTP konuşuyor ve posta kutusu kısıtı paylaşılan kenarda uygulanıyor;\n"+
+				"ağa açılması ikisini birden dışarı taşır.", addr)
+	}
+	return nil
+}
+
+// portOfAddr, "host:port" biçiminden port numarasını çıkarır.
+func portOfAddr(addr string) int {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil {
+		return 0
+	}
+	return n
 }
