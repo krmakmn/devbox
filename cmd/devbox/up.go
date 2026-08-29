@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"github.com/krmakmn/devbox/internal/certs"
+	"github.com/krmakmn/devbox/internal/cron"
 	"github.com/krmakmn/devbox/internal/dns"
 	"github.com/krmakmn/devbox/internal/edge"
+	"github.com/krmakmn/devbox/internal/mail"
 	"github.com/krmakmn/devbox/internal/paths"
 	"github.com/krmakmn/devbox/internal/phppool"
 	"github.com/krmakmn/devbox/internal/ports"
@@ -143,7 +145,13 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		e.Handle(host, handler)
 	}
 
+	up.startMail(e)
+
 	if err := up.startProcesses(ctx); err != nil {
+		return err
+	}
+
+	if err := up.startCron(ctx); err != nil {
 		return err
 	}
 
@@ -240,6 +248,8 @@ type upSession struct {
 	pool       *phppool.Pool
 	sup        *supervisor.Supervisor
 	dnsServer  *dns.Server
+	mailSMTP   *mail.SMTPServer
+	cronRunner *cron.Runner
 	backendURL string
 	confPath   string
 }
@@ -253,6 +263,12 @@ func (u *upSession) Close() {
 	}
 	if u.dnsServer != nil {
 		u.dnsServer.Close()
+	}
+	if u.mailSMTP != nil {
+		u.mailSMTP.Close()
+	}
+	if u.cronRunner != nil {
+		u.cronRunner.Close()
 	}
 }
 
@@ -400,7 +416,7 @@ func (u *upSession) startProcesses(ctx context.Context) error {
 			Exec:    parts[0],
 			Args:    parts[1:],
 			WorkDir: u.cfg.Dir(),
-			Env:     envList(u.cfg.Env),
+			Env:     envList(u.mailEnv()),
 		})
 		if err != nil {
 			return err
@@ -412,6 +428,91 @@ func (u *upSession) startProcesses(ctx context.Context) error {
 			return fmt.Errorf("%s süreci başlatılamadı: %w", name, err)
 		}
 	}
+	return nil
+}
+
+// startMail, posta yakalayıcıyı açar ve arayüzünü kenara bağlar.
+//
+// Yakalayıcı tüm makine için tek: SMTP portu ortak, çünkü uygulamalar
+// adresi yapılandırmalarına yazıyor. Aynı anda ikinci bir "devbox up"
+// çalışıyorsa port dolu olur; bu bir hata değil — o oturum postayı zaten
+// yakalıyor. Uyarıp devam ediyoruz, proje yine ayakta kalıyor.
+func (u *upSession) startMail(e *edge.Edge) {
+	if u.cfg.Mail.Disabled {
+		return
+	}
+	addr := u.cfg.Mail.SMTP
+	if addr == "" {
+		addr = mail.DefaultSMTPAddr
+	}
+	capacity := u.cfg.Mail.Capacity
+	if capacity == 0 {
+		capacity = mail.DefaultCapacity
+	}
+
+	store := mail.NewStore(capacity)
+	srv := &mail.SMTPServer{Addr: addr, Store: store, Logger: u.logger}
+	if err := srv.Start(); err != nil {
+		u.logger.Warn("posta yakalayıcı başlatılamadı; başka bir DevBox oturumu çalışıyor olabilir",
+			"adres", addr, "hata", err)
+		return
+	}
+	u.mailSMTP = srv
+	e.Handle(u.cfg.MailHost(), &mail.Handler{Store: store, SMTPAddr: srv.ListenAddr()})
+}
+
+// mailEnv, yakalayıcı çalışıyorsa süreçlere verilecek posta ayarlarını
+// döner. Kullanıcının devbox.yaml'da yazdığı değer üste yazılmıyor:
+// açıkça yazılmış bir ayarı sessizce değiştirmek en can sıkıcı davranış.
+func (u *upSession) mailEnv() map[string]string {
+	env := make(map[string]string, len(u.cfg.Env)+4)
+	if u.mailSMTP != nil {
+		host, port, err := net.SplitHostPort(u.mailSMTP.ListenAddr())
+		if err == nil {
+			env["MAIL_MAILER"] = "smtp"
+			env["MAIL_HOST"] = host
+			env["MAIL_PORT"] = port
+		}
+	}
+	for k, v := range u.cfg.Env {
+		env[k] = v
+	}
+	return env
+}
+
+// startCron, devbox.yaml'daki zamanlanmış görevleri başlatır.
+func (u *upSession) startCron(ctx context.Context) error {
+	if len(u.cfg.Cron) == 0 {
+		return nil
+	}
+	runner := &cron.Runner{
+		Logger:  u.logger,
+		WorkDir: u.cfg.Dir(),
+		Env:     envList(u.mailEnv()),
+	}
+	for i, entry := range u.cfg.Cron {
+		schedule, err := cron.Parse(entry.Schedule)
+		if err != nil {
+			return fmt.Errorf("%d. cron girdisi: %w", i+1, err)
+		}
+		parts, err := splitArgs(entry.Run)
+		if err != nil || len(parts) == 0 {
+			return fmt.Errorf("%d. cron girdisi çözümlenemedi: %q", i+1, entry.Run)
+		}
+		name := entry.Run
+		if len(name) > 40 {
+			name = name[:40] + "…"
+		}
+		if err := runner.Add(cron.Job{
+			Name: name, Schedule: schedule, Exec: parts[0], Args: parts[1:],
+		}); err != nil {
+			return err
+		}
+	}
+	if err := runner.Start(ctx); err != nil {
+		return err
+	}
+	u.cronRunner = runner
 	return nil
 }
 
@@ -444,9 +545,18 @@ func (u *upSession) printSummary() {
 	if u.dnsServer != nil {
 		fmt.Printf("  çözücü    : %s\n", u.dnsServer.Addr())
 	}
+	if u.mailSMTP != nil {
+		fmt.Printf("  posta     : smtp %s, kutu https://%s\n",
+			u.mailSMTP.ListenAddr(), u.cfg.MailHost())
+	}
 	if u.sup != nil {
 		for _, s := range u.sup.Status() {
 			fmt.Printf("  süreç     : %s (%s)\n", s.Name, s.State)
+		}
+	}
+	if u.cronRunner != nil {
+		for _, s := range u.cronRunner.Status() {
+			fmt.Printf("  zamanlı   : %s\n", s.Name)
 		}
 	}
 	fmt.Println("\n  Ctrl+C ile durdurun.")

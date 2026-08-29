@@ -20,6 +20,7 @@
 | API için WebSocket | **Günlük akışı tek yönlü** | SSE yetiyor ve standart kütüphaneyle yazılıyor; WebSocket bağımlılığı ertelendi. Çift yönlü kanal gerektiğinde (etkileşimli konsol) konu yeniden açılır |
 | Kök sertifikayı güven deposuna kurmak yeter | Firefox kendi NSS veritabanını taşıyor | Kurulum dört hedefe birden yapılıyor; Firefox atlanırsa "kurdum ama hâlâ uyarı veriyor" yaşanıyor |
 | Kök sertifika kurulumu sessizce yapılabilir | **Windows onay penceresi gösteriyor ve yanıt bekliyor** | Masaüstü oturumu olmayan bir ortamda çağrı süresiz bloke oluyor (CI'da 10 dakikalık test zaman aşımıyla keşfedildi). Kurulum artık bağlamla sınırlı; ayrıcalıklı yardımcı bu işi **servis olarak yapamaz**, kullanıcının oturumunda çalışmalı |
+| HTML postayı `srcdoc`'lu sandbox iframe'de göstermek yeter | **`srcdoc` belgesi üst sayfanın CSP'sini devralıyor** | Üst sayfanın ilkesinde satır içi betik açık olduğu için posta HTML'ine de betik izni geçiyordu; koruma yalnız `sandbox` özniteliğine kalmıştı. Gövde artık kendi katı ilkesini taşıyan ayrı bir uç noktadan sunuluyor. Gerçek Chromium'da bulundu, testler kaçırmıştı |
 | Kalıcı ayrıcalıklı yardımcı servis gerekli | **Ayrıcalıklı işlem listesi eridi** | Altı işlemden üçü ayrıcalık gerektirmiyordu ya da servisten yapılamıyordu; kalan üçü yılda birkaç kez çalışan tek seferlik işler. Kalıcı bir ayrıcalıklı dinleyici, yılda birkaç dakika için projenin en büyük güvenlik yüzeyini sürekli açık tutmak demekti. **Talep üzerine yükseltmeye geçildi** (bkz. 4.2) |
 
 ---
@@ -423,14 +424,34 @@ birlikte ele alınacak.
   yükleme veri kaybı olmadan çalışıyor.
 
 ### Faz 5 — Posta ve yan servisler · 3 hafta
-- **Mailpit** (SMTP yakalayıcı + web arayüzü + API; MailHog'un modern halefi),
-  `mail.devbox.test` altında, HTML/metin/ek önizleme, arama, WebSocket canlı akış.
+- ~~**Mailpit**~~ → **kendi yakalayıcımız** (`internal/mail`): SMTP yakalayıcı,
+  MIME/ek çözümleme, posta kutusu arayüzü, JSON API, SSE canlı akış, arama.
+  `mail.<alan-adı>` altında, `devbox up` ile birlikte açılıyor. ✅
+- Kuyruk işçileri ve cron: `devbox.yaml`'daki `processes` ve `cron` blokları. ✅
 - İsteğe bağlı gerçek röle (bir projede gerçekten posta göndermek gerekirse,
-  açıkça izin verilen alan adlarına).
-- Redis (Memurai ya da WSL), MinIO, Meilisearch, RabbitMQ bileşenleri.
-- Kuyruk işçileri ve cron: `devbox.yaml`'daki `processes` ve `cron` blokları.
+  açıkça izin verilen alan adlarına). ⏳
+- Redis (Memurai ya da WSL), MinIO, Meilisearch, RabbitMQ bileşenleri. ⏳
 - **Kabul:** Laravel'den atılan posta 200 ms içinde arayüzde; `devbox mail api`
   ile son postanın gövdesi testten okunabiliyor.
+  → **Kabul karşılandı** (`TestAPIStreamDeliversQuickly` 200 ms sınırını
+  ölçüyor; `devbox mail latest` ve `/api/latest` gövdeyi döndürüyor). Postayı
+  Laravel değil, stdlib `net/smtp` ve Python `smtplib` gönderdi — bağımsız
+  yazılmış iki istemciyle çapraz doğrulama, tek bir çerçeveye bakmaktan daha
+  çok şey söylüyor.
+
+  **Neden Mailpit değil:** manifest yayın altyapısı yok, yani ikiliyi
+  doğrulayarak indiremiyoruz (bkz. yukarıdaki fail-closed notu). Buna karşılık
+  yakalamak — asla röle etmemek — için gereken SMTP altkümesi küçük ve sınırları
+  belli. Mailpit ileride runtime kayıt defteri üzerinden bir seçenek olarak
+  kalıyor.
+
+  **Gerçek tarayıcıda çıkan bulgu:** HTML gövde ilk sürümde `srcdoc`'lu bir
+  iframe'e konuyordu. Chromium'da denenince `srcdoc` belgesinin **üst sayfanın
+  güvenlik ilkesini devraldığı** görüldü; bizim ilkemizde satır içi betik açık
+  olduğu için koruma tümüyle `sandbox` özniteliğine kalmıştı. Gövde artık kendi
+  ilkesini taşıyan ayrı bir uç noktadan geliyor (`default-src 'none'`, başlıkta
+  `sandbox`) — adres çubuğuna yapıştırılsa bile betik çalışmıyor, takip
+  pikselleri de `ERR_BLOCKED_BY_CSP` ile düşüyor.
 
 ### Faz 6 — GUI ve geliştirici deneyimi · 6 hafta
 - Tauri masaüstü uygulaması: proje listesi, tek tık başlat/durdur, sürüm

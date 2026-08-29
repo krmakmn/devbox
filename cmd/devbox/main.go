@@ -80,6 +80,8 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "mail":
+		return runMail(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("devbox %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
@@ -104,6 +106,7 @@ Kullanım:
   devbox dns <alt komut>      *.test için yerel çözücü ve NRPT kuralı
   devbox edge [seçenekler]    80/443'ü dinle, host adına göre dağıt
   devbox db <alt komut>       veritabanı örnekleri: kur, başlat, anlık görüntü
+  devbox mail <alt komut>     giden postayı yakala ve göster
   devbox runtime <alt komut>  PHP/Node gibi bileşenleri kur ve yönet
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster

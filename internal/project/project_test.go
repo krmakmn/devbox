@@ -116,6 +116,10 @@ func TestValidateRejectsBadConfigs(t *testing.T) {
 		"geçersiz alan adı": "name: a\ndomain: \"a b.test\"\n",
 		"geçersiz ad":       "name: \"a/b\"\ndomain: a.test\n",
 		"cron eksik":        "name: a\ndomain: a.test\ncron:\n  - schedule: \"* * * * *\"\n",
+		"posta alan adı":    "name: a\ndomain: a.test\nmail:\n  host: \"a b.test\"\n",
+		"posta adresi":      "name: a\ndomain: a.test\nmail:\n  smtp: \"1025\"\n",
+		"posta kapasitesi":  "name: a\ndomain: a.test\nmail:\n  capacity: -1\n",
+		"cron zamanlaması":  "name: a\ndomain: a.test\ncron:\n  - schedule: \"her dakika\"\n    run: ls\n",
 	}
 	for label, data := range cases {
 		cfg, err := Parse([]byte(data))
@@ -352,5 +356,37 @@ func TestSuggestName(t *testing.T) {
 		if got := suggestName(in); got != want {
 			t.Errorf("suggestName(%q) = %q, beklenen %q", in, got, want)
 		}
+	}
+}
+
+// Posta kutusu, proje alan adının altında duruyor: sertifika joker adı ve
+// çözücünün sahiplendiği son ek zaten onu kapsıyor.
+func TestMailHostDefaultsUnderProjectDomain(t *testing.T) {
+	cfg, err := Parse([]byte("name: magaza\ndomain: magaza.test\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MailHost(); got != "mail.magaza.test" {
+		t.Errorf("MailHost() = %q, beklenen mail.magaza.test", got)
+	}
+
+	cfg, err = Parse([]byte("name: magaza\ndomain: magaza.test\nmail:\n  host: posta.magaza.test\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MailHost(); got != "posta.magaza.test" {
+		t.Errorf("MailHost() = %q, yazılan değer kullanılmamış", got)
+	}
+}
+
+// Yakalayıcı öntanımlı açık: test verisindeki gerçek bir adrese kazara
+// posta gitmesi, bu aracın önlemesi gereken hatanın ta kendisi.
+func TestMailIsEnabledByDefault(t *testing.T) {
+	cfg, err := Parse([]byte("name: magaza\ndomain: magaza.test\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mail.Disabled {
+		t.Error("posta yakalayıcı öntanımlı kapalı geldi")
 	}
 }

@@ -3,12 +3,13 @@
 Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yeniden
 üretilebilirliği, Herd'ün cilası.
 
-> **Durum: Faz 4 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
+> **Durum: Faz 5 sürüyor.** Faz 0'ın dört prototipi (PHP havuzu, yerel CA,
 > `*.test` çözücüsü, kenar proxy) ve Faz 1'in dört maddesi (runtime kayıt
 > defteri, süreç denetçisi, çekirdek servisin API'si, ayrıcalıklı işlemler)
 > hazır. Faz 2 (Apache/Nginx sürücüleri, port tahsisi, php.ini) ve Faz 3'ün
 > kod tarafı (`devbox.yaml`, çerçeve algılama, `devbox up`/`down`) tamamlandı.
-> Faz 4'te veritabanı örnekleri çalışıyor.
+> Faz 4'te veritabanı örnekleri çalışıyor. Faz 5'te posta yakalayıcı ve
+> zamanlanmış görevler `devbox up`'a bağlandı.
 >
 > **MVP'nin kabul kriteri henüz karşılanmadı:** "temiz bir Windows'ta
 > `devbox up` → tarayıcıda uyarısız `https://`". NRPT, Firefox NSS, UAC ve
@@ -49,6 +50,8 @@ Bunun arkasında duran parçalar:
 | `internal/dns` | `*.test` için yetkili, özyinelemesiz çözücü (UDP + TCP) |
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
+| `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/cron` | Zamanlanmış görevler: cron ifadesi ayrıştırma ve üst üste binmeyen çalıştırma |
 | `internal/proc` | Süreçlerin arkada kalmamasını sağlayan iş nesnesi / süreç grubu |
 
 Neden PHP-FPM değil: Windows'ta yok. php-cgi.exe var ama tek istek görüp
@@ -105,6 +108,42 @@ Sürümler arası taşıma için SQL dökümü ayrı bir komut: `devbox db expor
 
 Hazır olma ölçütü TCP değil günlük satırı: MySQL ve MariaDB portu, bağlantı
 kabul etmeye hazır olmadan önce açıyor.
+
+Posta tarafında: Laragon'un yaptığı, `php.ini`'de `sendmail_path`'i bir
+yakalayıcıya çevirmekten ibaret; postanın nereye gittiği projeye değil makineye
+bağlı. DevBox'ta yakalayıcı **öntanımlı açık** ve `devbox.yaml`'a yazılı — test
+verisindeki gerçek bir adrese kazara posta gitmesi, bu araçların önlemesi
+gereken en pahalı hatalardan biri. Kutu `https://mail.<alan-adı>` altında
+açılıyor; proje sertifikası `*.<alan-adı>` joker adını kapsadığı için ayrı
+sertifika, çözücü son eki sahiplendiği için ayrı DNS kaydı gerekmiyor.
+Süreçlere `MAIL_HOST`/`MAIL_PORT` ortam değişkenleri veriliyor — `devbox.yaml`'da
+açıkça yazılmış bir değer varsa o korunuyor.
+
+Mailpit yerine kendi yakalayıcımızı yazdık. İki gerekçe: manifest yayın
+altyapısı henüz olmadığı için ikiliyi doğrulayarak indiremiyoruz; ve yakalamak
+(asla röle etmemek) için gereken SMTP altkümesi küçük, sınırları belli ve
+yanlış davrandığında sessiz kalmıyor. Mailpit ileride runtime kayıt defteri
+üzerinden bir seçenek olarak durabilir.
+
+**Yakalanan posta güvenilmez içeriktir.** Uygulamanın gönderdiği HTML'de
+kullanıcıdan gelen veri olur; onu arayüze doğrudan basmak, postayı tetikleyen
+kişiye posta kutusunun kökeninde betik çalıştırma imkânı verir. İlk sürüm HTML
+gövdeyi `srcdoc`'lu bir iframe'e koyuyordu; Chromium'da denenince görüldü ki
+`srcdoc` belgesi **üst sayfanın güvenlik ilkesini devralıyor** — bizim ilkemizde
+satır içi betik açık olduğu için koruma tümüyle `sandbox` özniteliğine kalmıştı.
+Şimdi gövde kendi ilkesini taşıyan ayrı bir uç noktadan geliyor
+(`default-src 'none'`, başlıkta `sandbox`), yani adres çubuğuna yapıştırılsa
+bile betik çalışmıyor. Yan faydası: takip pikselleri de engelleniyor — gerçek
+bir tarayıcıda `ERR_BLOCKED_BY_CSP` ile düştükleri doğrulandı.
+
+Zamanlanmış görev tarafında: Laragon'da böyle bir şey yok, Windows'un Görev
+Zamanlayıcısı ise depoya yazılamaz. Oysa Laravel'in `schedule:run`'ı dakikada
+bir çalışmak zorunda. `devbox.yaml`'daki `cron` bloğu bunu üstleniyor.
+Zamanlama ifadesi **yapılandırma okunurken** çözülüyor: yazım hatası, görevin
+aylarca sessizce hiç çalışmaması yerine `devbox up`ta hemen görünüyor. Bir
+çalıştırma bitmeden sırası gelen ikincisi atlanıyor — `schedule:run` zaman zaman
+bir dakikadan uzun sürer ve onu paralel başlatmak aynı kuyruk işini iki kez
+işlemek demektir.
 
 `devbox.yaml` tarafında: ortam makineye değil **depoya** yazılıyor. Ekip
 arkadaşı klonlayıp `devbox up` diyor; aynı PHP sürümü, aynı uzantılar, aynı web

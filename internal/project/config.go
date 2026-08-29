@@ -17,11 +17,14 @@ package project
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/krmakmn/devbox/internal/cron"
 )
 
 // FileName, proje kökünde aranan dosya.
@@ -83,6 +86,9 @@ type Config struct {
 	// Cron, zamanlanmış görevler.
 	Cron []CronEntry `yaml:"cron,omitempty"`
 
+	// Mail, yerel posta yakalayıcı ayarları.
+	Mail Mail `yaml:"mail,omitempty"`
+
 	// dir, yapılandırmanın okunduğu dizin. Dosyaya yazılmaz.
 	dir string `yaml:"-"`
 }
@@ -105,6 +111,26 @@ type PHP struct {
 	Xdebug bool `yaml:"xdebug,omitempty"`
 }
 
+// Mail, projenin posta yakalayıcı ayarları.
+//
+// Yakalayıcı varsayılan olarak açık. Geliştirme ortamındaki en pahalı
+// hatalardan biri, test verisindeki gerçek bir adrese gerçekten posta
+// gitmesi; DevBox'ın giden postayı öntanımlı olarak tutması bunu
+// imkânsız kılıyor. Kapatmak isteyen "disabled: true" yazar.
+type Mail struct {
+	// Disabled, yakalayıcıyı kapatır.
+	Disabled bool `yaml:"disabled,omitempty"`
+
+	// SMTP, dinlenecek SMTP adresi. Boşsa 127.0.0.1:1025.
+	SMTP string `yaml:"smtp,omitempty"`
+
+	// Host, posta kutusu arayüzünün alan adı. Boşsa mail.<domain>.
+	Host string `yaml:"host,omitempty"`
+
+	// Capacity, bellekte tutulacak en fazla posta. 0 ise varsayılan.
+	Capacity int `yaml:"capacity,omitempty"`
+}
+
 // CronEntry, zamanlanmış tek bir görev.
 type CronEntry struct {
 	Schedule string `yaml:"schedule"`
@@ -120,6 +146,18 @@ func (c *Config) DocumentRoot() string {
 		return c.dir
 	}
 	return filepath.Join(c.dir, filepath.FromSlash(c.Root))
+}
+
+// MailHost, posta kutusu arayüzünün alan adı.
+//
+// Öntanımlı mail.<domain>: proje sertifikası *.<domain> joker adını da
+// kapsadığı için ayrı sertifika gerekmiyor ve çözücü zaten son eki
+// sahipleniyor — yani https://mail.magaza.test ek ayar istemeden açılıyor.
+func (c *Config) MailHost() string {
+	if c.Mail.Host != "" {
+		return c.Mail.Host
+	}
+	return "mail." + c.Domain
 }
 
 // UsesPHP, projenin PHP havuzuna ihtiyaç duyup duymadığını söyler.
@@ -220,9 +258,25 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("geçersiz PHP uzantısı %q", e)
 		}
 	}
+	if c.Mail.Host != "" && !validDomain(c.Mail.Host) {
+		return fmt.Errorf("geçersiz posta alan adı %q", c.Mail.Host)
+	}
+	if c.Mail.SMTP != "" {
+		if _, _, err := net.SplitHostPort(c.Mail.SMTP); err != nil {
+			return fmt.Errorf("geçersiz mail.smtp adresi %q (host:port bekleniyor)", c.Mail.SMTP)
+		}
+	}
+	if c.Mail.Capacity < 0 {
+		return fmt.Errorf("mail.capacity negatif olamaz: %d", c.Mail.Capacity)
+	}
 	for i, entry := range c.Cron {
 		if entry.Schedule == "" || entry.Run == "" {
 			return fmt.Errorf("%d. cron girdisinde schedule ya da run eksik", i)
+		}
+		// Zamanlama burada çözülüyor: yazım hatası, görevin sessizce hiç
+		// çalışmaması yerine "devbox up"ta hemen görünsün.
+		if _, err := cron.Parse(entry.Schedule); err != nil {
+			return fmt.Errorf("%d. cron girdisinin zamanlaması: %w", i+1, err)
 		}
 	}
 	return nil
