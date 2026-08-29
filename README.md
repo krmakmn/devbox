@@ -21,6 +21,7 @@ Windows için yerel geliştirme ortamı — Laragon'un kolaylığı, DDEV'in yen
 > deneme ve bir bağımsız denetim.
 >
 > Başlangıç: **[docs/baslangic.md](docs/baslangic.md)** ·
+> Windows'ta deneme: **[docs/windows-testi.md](docs/windows-testi.md)** ·
 > Plan ve kararlar: **[docs/yol-haritasi.md](docs/yol-haritasi.md)** ·
 > Güvenlik: **[docs/guvenlik.md](docs/guvenlik.md)** ·
 > Ölçümler: **[docs/performans.md](docs/performans.md)**

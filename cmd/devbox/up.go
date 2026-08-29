@@ -284,6 +284,7 @@ type upSession struct {
 	svcManager *services.Manager
 	containers []containerRef
 	inspector  *inspect.Recorder
+	phpError   error
 	backendURL string
 	confPath   string
 }
@@ -337,13 +338,30 @@ func (u *upSession) buildSite(ctx context.Context, phpPath, serverBin string) (h
 		return handler, nil
 	}
 
+	// PHP havuzu isteğe bağlı: DevBox'ın kendi sunucusu statik dosyaları
+	// PHP olmadan da sunabiliyor. Kurulu değilse uyarıp devam ediyoruz;
+	// bir .php isteği geldiğinde işleyici ne yapılacağını söylüyor.
+	//
+	// Apache ve Nginx sürücülerinde durum farklı: üretilen yapılandırma
+	// FastCGI adreslerini içeriyor ve havuz olmadan sunucu açılamıyor.
 	if err := u.startPHP(ctx, phpPath); err != nil {
-		return nil, err
+		if cfg.Server != project.ServerDevBox {
+			return nil, err
+		}
+		u.logger.Warn("PHP havuzu başlatılamadı; yalnız statik dosyalar sunulacak",
+			"hata", err)
+		u.phpError = err
 	}
 
 	if cfg.Server == project.ServerDevBox {
+		var pool web.Requester
+		// Tip bilgisi olan nil bir arayüz, arayüzün kendisi nil olmadığı
+		// için işleyicideki denetimi atlatırdı.
+		if u.pool != nil {
+			pool = u.pool
+		}
 		return &web.Handler{
-			Pool:            u.pool,
+			Pool:            pool,
 			DocumentRoot:    cfg.DocumentRoot(),
 			FrontController: cfg.FrontController,
 			ServerName:      cfg.Domain,
@@ -767,6 +785,9 @@ func (u *upSession) printSummary() {
 	}
 	if u.pool != nil {
 		fmt.Printf("  php       : %d işçi, %s\n", len(u.pool.Addrs()), strings.Join(u.pool.Addrs(), ", "))
+	} else if u.phpError != nil {
+		fmt.Printf("  php       : yok — yalnız statik dosyalar\n")
+		fmt.Printf("              kurmak için: devbox runtime install php@8.3\n")
 	}
 	if u.confPath != "" {
 		fmt.Printf("  yapılandırma: %s\n", u.confPath)

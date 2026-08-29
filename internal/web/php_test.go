@@ -364,3 +364,99 @@ func TestMissingPHPScriptIsNotFound(t *testing.T) {
 		t.Error("var olmayan betik için PHP çağrıldı")
 	}
 }
+
+// İçinde yalnız index.html olan bir klasörü sunmak, bir geliştirme
+// ortamının en basit işi. Dizin belgesi listesi olmadan bu imkânsızdı:
+// "/" isteği ön denetleyiciye düşüyor ve o da yoksa 404 dönüyordu.
+func TestDirectoryServesStaticIndex(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"),
+		[]byte("<h1>Merhaba</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tgt, err := resolveTarget(root, "/", "index.php")
+	if err != nil {
+		t.Fatalf("kök dizin çözümlenemedi: %v", err)
+	}
+	if tgt.staticFile == "" {
+		t.Fatalf("statik dizin belgesi bulunamadı: %+v", tgt)
+	}
+	if filepath.Base(tgt.staticFile) != "index.html" {
+		t.Errorf("sunulan dosya = %q", tgt.staticFile)
+	}
+}
+
+// Bir PHP uygulamasında index.php kazanmalı: ikisi birden varsa
+// çerçevenin yönlendiricisi devrede kalsın.
+func TestFrontControllerWinsOverStaticIndex(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"index.html", "index.php"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tgt, err := resolveTarget(root, "/", "index.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tgt.scriptFile == "" || filepath.Base(tgt.scriptFile) != "index.php" {
+		t.Errorf("ön denetleyici seçilmedi: %+v", tgt)
+	}
+}
+
+// Alt dizinler de dizin belgesini almalı.
+func TestSubdirectoryServesStaticIndex(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "belgeler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "belgeler", "index.html"),
+		[]byte("alt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tgt, err := resolveTarget(root, "/belgeler/", "index.php")
+	if err != nil {
+		t.Fatalf("alt dizin çözümlenemedi: %v", err)
+	}
+	if tgt.staticFile == "" {
+		t.Errorf("alt dizinin belgesi bulunamadı: %+v", tgt)
+	}
+}
+
+// PHP havuzu yoksa statik dosyalar sunulmalı ama .php isteği açık bir
+// hata vermeli — sessizce 404 değil.
+func TestWithoutPoolStaticWorksAndPHPExplains(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("statik"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app.php"), []byte("<?php"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &Handler{DocumentRoot: root, FrontController: "index.php", ServerName: "magaza.test"}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "statik" {
+		t.Errorf("statik dosya sunulmadı: %d %q", resp.StatusCode, body)
+	}
+
+	resp, err = http.Get(srv.URL + "/app.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("PHP isteği durumu = %d, 501 bekleniyordu", resp.StatusCode)
+	}
+}

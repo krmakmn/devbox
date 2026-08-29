@@ -129,6 +129,8 @@ tuttuğunu söylüyor.
 
 ## Daha fazlası
 
+- [Windows'ta deneme kılavuzu](windows-testi.md) — adım adım doğrulama ve
+  geri bildirim kontrol listesi
 - [Yol haritası](yol-haritasi.md) — ne yapıldı, ne yapılmadı, neden
 - [Güvenlik](guvenlik.md) — saldırı yüzeyi ve kararların gerekçesi
 - [Performans](performans.md) — ölçümler

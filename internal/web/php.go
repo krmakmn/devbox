@@ -15,6 +15,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,12 @@ import (
 
 	"github.com/krmakmn/devbox/internal/fastcgi"
 )
+
+// errPHPUnavailable, PHP havuzu olmadan .php istendiğinde dönen hata.
+var errPHPUnavailable = errors.New(
+	"bu proje PHP olmadan çalışıyor: php-cgi bulunamadı.\n" +
+		"  Kurulum: devbox runtime install php@8.3\n" +
+		"  ya da yolunu verin: devbox up -php <php-cgi yolu>")
 
 // Requester, isteği çalıştıracak FastCGI kaynağıdır (pratikte *phppool.Pool).
 type Requester interface {
@@ -104,6 +111,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) runPHP(w http.ResponseWriter, r *http.Request, root string, tgt target) {
+	// Havuz yoksa proje PHP'siz çalışıyor demektir: statik dosyalar
+	// sunuluyor ama .php isteği karşılanamıyor.
+	//
+	// Bu ayrım gerçek bir ilk kullanım deneyiminden çıktı: içinde yalnız
+	// index.html olan bir klasörü sunmak isteyen kullanıcı, PHP kurulu
+	// olmadığı için hiçbir şey açamıyordu. Laragon bir klasörü PHP'siz
+	// sunar; bizim de sunmamız gerekiyor. PHP gerçekten istendiğinde ise
+	// sessiz kalmak yerine ne yapılacağını söylüyoruz.
+	if h.Pool == nil {
+		h.fail(w, r, http.StatusNotImplemented, errPHPUnavailable)
+		return
+	}
+
 	params := h.buildParams(r, root, tgt)
 
 	resp, err := h.Pool.Do(r.Context(), params, r.Body)
@@ -238,6 +258,9 @@ var (
 )
 
 // target, bir isteğin diskteki karşılığıdır.
+// staticIndexNames, dizin isteğinde aranan statik belgeler.
+var staticIndexNames = []string{"index.html", "index.htm"}
+
 type target struct {
 	scriptFile string // çalıştırılacak .php dosyasının disk yolu
 	scriptName string // aynı betiğin URL yolu (SCRIPT_NAME)
@@ -289,7 +312,12 @@ func resolveTarget(root, urlPath, frontController string) (target, error) {
 		return target{staticFile: file}, nil
 	}
 
-	// 3) Dizin ise içindeki ön denetleyiciye bak.
+	// 3) Dizin ise içindeki dizin belgesine bak.
+	//
+	// Önce ön denetleyici (bir PHP uygulamasında index.php kazanmalı),
+	// sonra statik dizin belgeleri. İkincisi olmadan, içinde yalnız
+	// index.html olan bir klasörü sunmak imkânsızdı — her web sunucusu
+	// (DirectoryIndex, try_files $uri/) bu listeye sahip.
 	if isDir(file) {
 		indexName := path.Join(clean, frontController)
 		indexFile, err := safeJoin(root, indexName)
@@ -298,6 +326,17 @@ func resolveTarget(root, urlPath, frontController string) (target, error) {
 		}
 		if isRegularFile(indexFile) {
 			return target{scriptFile: indexFile, scriptName: indexName}, nil
+		}
+
+		for _, name := range staticIndexNames {
+			staticName := path.Join(clean, name)
+			staticFile, err := safeJoin(root, staticName)
+			if err != nil {
+				return target{}, err
+			}
+			if isRegularFile(staticFile) {
+				return target{staticFile: staticFile}, nil
+			}
 		}
 	}
 

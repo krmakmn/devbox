@@ -88,13 +88,47 @@ jobs:
           }
           Write-Host "✓ NRPT kuralı var: $($kural.Namespace) → $($kural.NameServers)"
 
+      - name: Çözücü doğrudan sorulduğunda yanıt veriyor mu
+        shell: pwsh
+        run: |
+          # Bu adım, sorunun ÇÖZÜCÜDE mi yoksa NRPT'nin uygulanmasında
+          # mı olduğunu ayırıyor. İlk koşuda Resolve-DnsName başarısız
+          # oldu ama hangi katmanda olduğu belli değildi.
+          Write-Host "--- 127.0.0.53:53 dinleniyor mu ---"
+          Get-NetTCPConnection -LocalPort 53 -ErrorAction SilentlyContinue |
+            Format-Table -AutoSize | Out-String | Write-Host
+          (Get-NetUDPEndpoint -LocalPort 53 -ErrorAction SilentlyContinue |
+            Format-Table -AutoSize | Out-String) | Write-Host
+
+          Write-Host "--- çözücü günlüğü ---"
+          Get-Content dns-out.log, dns-err.log -ErrorAction SilentlyContinue | Write-Host
+
+          Write-Host "--- doğrudan çözücüye sorulan ---"
+          $dogrudan = Resolve-DnsName -Name magaza.test -Server 127.0.0.53 -ErrorAction SilentlyContinue
+          if ($dogrudan) {
+            $dogrudan | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "✓ çözücü doğrudan sorulduğunda yanıt veriyor"
+          } else {
+            Write-Host "::warning::çözücü doğrudan sorulduğunda da yanıt vermedi"
+          }
+
+          Write-Host "--- nslookup ile ---"
+          nslookup magaza.test 127.0.0.53 2>&1 | Write-Host
+
       - name: Alan adı gerçekten çözülüyor mu
         shell: pwsh
         run: |
           # Windows'un kendi çözücüsü üzerinden: NRPT kuralı devredeyse
           # istek DevBox'ın çözücüsüne gidiyor.
+          Write-Host "--- etkin NRPT ilkesi ---"
+          Get-DnsClientNrptPolicy -Effective -ErrorAction SilentlyContinue |
+            Format-List | Out-String | Write-Host
+          Clear-DnsClientCache
+
           $sonuc = Resolve-DnsName -Name magaza.test -ErrorAction SilentlyContinue
           if (-not $sonuc) {
+            Write-Host "--- nslookup (sistem çözücüsü) ---"
+            nslookup magaza.test 2>&1 | Write-Host
             Get-Content dns-out.log, dns-err.log -ErrorAction SilentlyContinue | Write-Host
             throw "magaza.test çözülemedi"
           }
