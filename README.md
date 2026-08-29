@@ -136,6 +136,15 @@ satır içi betik açık olduğu için koruma tümüyle `sandbox` özniteliğine
 bile betik çalışmıyor. Yan faydası: takip pikselleri de engelleniyor — gerçek
 bir tarayıcıda `ERR_BLOCKED_BY_CSP` ile düştükleri doğrulandı.
 
+Röle isteğe bağlı ve **beyaz listeli**. Bir projede gerçekten posta göndermek
+gerekirse `mail.relay` yazılır; yalnız listelenen alıcılara gider, geri kalan
+her şey yalnız yakalanır. Liste boşsa yapılandırma reddediliyor — "hepsine
+gönder" kısayolu aracın var oluş sebebini ortadan kaldırırdı. Alt alan adları
+kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemiş
+sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
+çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
+arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
 Zamanlanmış görev tarafında: Laragon'da böyle bir şey yok, Windows'un Görev
 Zamanlayıcısı ise depoya yazılamaz. Oysa Laravel'in `schedule:run`'ı dakikada
 bir çalışmak zorunda. `devbox.yaml`'daki `cron` bloğu bunu üstleniyor.

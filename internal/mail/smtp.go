@@ -74,6 +74,10 @@ type SMTPServer struct {
 	// Hostname, karşılama satırında görünen ad.
 	Hostname string
 
+	// Relay, verilirse izin listesindeki alıcılara posta gerçekten
+	// gönderilir. Yakalama yine sürer; röle ek bir iş.
+	Relay *Relayer
+
 	Logger *slog.Logger
 
 	mu   sync.Mutex
@@ -295,6 +299,20 @@ func (s *SMTPServer) handle(conn net.Conn) {
 			msg := Parse(raw, sess.from, sess.to)
 			s.Store.Add(msg)
 			s.logf("posta yakalandı: %s → %s (%s)", msg.From, strings.Join(msg.To, ", "), msg.Subject)
+
+			// Röle arka planda: gerçek bir SMTP sunucusuna bağlanmak
+			// saniyeler sürebilir ve gönderen uygulama bu süre boyunca
+			// beklememeli.
+			if s.Relay != nil {
+				id := msg.ID
+				s.wg.Add(1)
+				go func() {
+					defer s.wg.Done()
+					if result := s.Relay.Relay(msg); result != nil {
+						s.Store.SetRelay(id, result)
+					}
+				}()
+			}
 
 			sess = session{}
 			if reply("250 2.0.0 Alındı: %s", msg.ID) != nil {

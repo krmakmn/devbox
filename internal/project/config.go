@@ -129,6 +129,33 @@ type Mail struct {
 
 	// Capacity, bellekte tutulacak en fazla posta. 0 ise varsayılan.
 	Capacity int `yaml:"capacity,omitempty"`
+
+	// Relay, verilirse izin listesindeki alıcılara posta gerçekten
+	// gönderilir. Yazılmadıkça hiçbir posta dışarı çıkmaz.
+	Relay *MailRelay `yaml:"relay,omitempty"`
+}
+
+// MailRelay, gerçek posta gönderimi.
+//
+// Yakalayıcının varlık sebebi postanın dışarı çıkmaması olduğu için röle
+// yalnız açıkça yazıldığında ve yalnız listelenen alıcılara çalışıyor.
+// "Hepsine gönder" diye bir kısayol yok.
+type MailRelay struct {
+	// Host, gerçek SMTP sunucusu ("smtp.example.com:587").
+	Host string `yaml:"host"`
+
+	// Username, sunucu kimlik doğrulaması istiyorsa kullanıcı adı.
+	Username string `yaml:"username,omitempty"`
+
+	// PasswordEnv, parolanın okunacağı ortam değişkeninin adı.
+	//
+	// Parola devbox.yaml'a yazılmıyor: bu dosya depoya giriyor ve
+	// parolanın depoda işi yok.
+	PasswordEnv string `yaml:"passwordEnv,omitempty"`
+
+	// Allow, gerçekten posta gidecek alıcılar. Tam adres
+	// ("kerim@sirket.com") ya da alan adı ("sirket.com").
+	Allow []string `yaml:"allow"`
 }
 
 // CronEntry, zamanlanmış tek bir görev.
@@ -268,6 +295,22 @@ func (c *Config) Validate() error {
 	}
 	if c.Mail.Capacity < 0 {
 		return fmt.Errorf("mail.capacity negatif olamaz: %d", c.Mail.Capacity)
+	}
+	if r := c.Mail.Relay; r != nil {
+		if r.Host == "" || !strings.Contains(r.Host, ":") {
+			return fmt.Errorf("mail.relay.host host:port biçiminde olmalı: %q", r.Host)
+		}
+		if len(r.Allow) == 0 {
+			return fmt.Errorf("mail.relay.allow zorunlu: hangi alıcılara gerçekten posta gideceği açıkça yazılmalı")
+		}
+		for _, a := range r.Allow {
+			if strings.TrimSpace(a) == "" {
+				return fmt.Errorf("mail.relay.allow içinde boş girdi var")
+			}
+		}
+		if r.Username != "" && r.PasswordEnv == "" {
+			return fmt.Errorf("mail.relay.username verilmiş; parola için passwordEnv gerekli (parola devbox.yaml'a yazılmaz)")
+		}
 	}
 	for i, entry := range c.Cron {
 		if entry.Schedule == "" || entry.Run == "" {

@@ -120,6 +120,9 @@ func TestValidateRejectsBadConfigs(t *testing.T) {
 		"posta adresi":      "name: a\ndomain: a.test\nmail:\n  smtp: \"1025\"\n",
 		"posta kapasitesi":  "name: a\ndomain: a.test\nmail:\n  capacity: -1\n",
 		"cron zamanlaması":  "name: a\ndomain: a.test\ncron:\n  - schedule: \"her dakika\"\n    run: ls\n",
+		"röle izinsiz":      "name: a\ndomain: a.test\nmail:\n  relay:\n    host: smtp.x:587\n",
+		"röle portsuz":      "name: a\ndomain: a.test\nmail:\n  relay:\n    host: smtp.x\n    allow: [\"a.com\"]\n",
+		"röle parolasız":    "name: a\ndomain: a.test\nmail:\n  relay:\n    host: smtp.x:587\n    username: u\n    allow: [\"a.com\"]\n",
 	}
 	for label, data := range cases {
 		cfg, err := Parse([]byte(data))
@@ -388,5 +391,14 @@ func TestMailIsEnabledByDefault(t *testing.T) {
 	}
 	if cfg.Mail.Disabled {
 		t.Error("posta yakalayıcı öntanımlı kapalı geldi")
+	}
+}
+
+// Röle parolası devbox.yaml'a yazılamamalı: bu dosya depoya giriyor.
+func TestRelayPasswordCanOnlyComeFromEnvironment(t *testing.T) {
+	_, err := Parse([]byte("name: a\ndomain: a.test\nmail:\n  relay:\n" +
+		"    host: smtp.x:587\n    username: u\n    password: gizli\n    allow: [\"a.com\"]\n"))
+	if err == nil {
+		t.Error("devbox.yaml'a yazılmış parola kabul edildi")
 	}
 }

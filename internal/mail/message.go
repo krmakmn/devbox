@@ -47,10 +47,17 @@ type Message struct {
 	Raw []byte `json:"-"`
 
 	Size int `json:"size"`
+
+	// Relay, posta gerçekten gönderildiyse sonucu. Store kilidi altında
+	// yazılıyor; doğrudan okumak yerine Store.Get kullanılmalı.
+	Relay *RelayResult `json:"relay,omitempty"`
 }
 
 // Summary, listede gösterilecek özet.
 type Summary struct {
+	// Relayed, postanın gerçekten gönderilip gönderilmediği.
+	Relayed bool `json:"relayed,omitempty"`
+
 	ID              string    `json:"id"`
 	Received        time.Time `json:"received"`
 	From            string    `json:"from"`
@@ -67,6 +74,7 @@ func (m *Message) Summary() Summary {
 		ID: m.ID, Received: m.Received, From: m.From, To: m.To,
 		Subject: m.Subject, Size: m.Size,
 		AttachmentCount: len(m.Attachments), HasHTML: m.HTML != "",
+		Relayed: m.Relay != nil && m.Relay.Error == "" && len(m.Relay.Recipients) > 0,
 	}
 }
 

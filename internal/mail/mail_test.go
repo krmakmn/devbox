@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/smtp"
@@ -684,4 +685,147 @@ func TestSearchIsCaseInsensitiveInTurkish(t *testing.T) {
 			t.Errorf("q=%q: %d sonuç, 1 bekleniyordu", q, len(got))
 		}
 	}
+}
+
+// Röle, yalnız açıkça izin verilen alıcılara posta gönderir. Geri kalan
+// her şey yalnız yakalanır: geliştirme ortamındaki test verisinde gerçek
+// bir adres bulunması an meselesi.
+func TestRelayOnlySendsToAllowedRecipients(t *testing.T) {
+	var mu sync.Mutex
+	var sent [][]string
+
+	relay := &Relayer{
+		Host:  "smtp.example.com:587",
+		Allow: []string{"sirket.com", "kerim@baska.test"},
+		send: func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			mu.Lock()
+			defer mu.Unlock()
+			sent = append(sent, to)
+			return nil
+		},
+	}
+	if err := relay.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newServer(t)
+	srv.Relay = relay
+
+	// Biri izinli alan adında, biri izinli tam adres, ikisi değil.
+	send(t, srv, "uygulama@devbox.test",
+		[]string{"ayse@sirket.com", "kerim@baska.test", "yabanci@baskayer.test"},
+		"Subject: duyuru\r\n\r\ngövde\r\n")
+	waitFor(t, srv, 1)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(sent)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 1 {
+		t.Fatalf("%d gönderim yapıldı, 1 bekleniyordu", len(sent))
+	}
+	got := strings.Join(sent[0], ",")
+	if got != "ayse@sirket.com,kerim@baska.test" {
+		t.Errorf("röle edilen alıcılar = %q; izinsiz alıcıya posta gitmiş olabilir", got)
+	}
+}
+
+// Hiçbir alıcı listede değilse hiç bağlantı kurulmamalı.
+func TestRelaySkipsWhenNoRecipientAllowed(t *testing.T) {
+	var çağrıldı bool
+	relay := &Relayer{
+		Host:  "smtp.example.com:587",
+		Allow: []string{"sirket.com"},
+		send: func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			çağrıldı = true
+			return nil
+		},
+	}
+	msg := Parse([]byte("Subject: x\r\n\r\ngövde\r\n"), "a@x.test", []string{"b@y.test"})
+	if result := relay.Relay(msg); result != nil {
+		t.Errorf("izinsiz alıcı için röle sonucu üretildi: %+v", result)
+	}
+	if çağrıldı {
+		t.Error("izinsiz alıcı için SMTP bağlantısı kuruldu")
+	}
+}
+
+// Alt alan adları kapsanmıyor: "sirket.com" yazan biri
+// "test.sirket.com"a posta gitmesini istemiş sayılmaz.
+func TestRelayDoesNotMatchSubdomains(t *testing.T) {
+	relay := &Relayer{Host: "h:25", Allow: []string{"sirket.com"}}
+	for addr, want := range map[string]bool{
+		"a@sirket.com":      true,
+		"A@SIRKET.COM":      true,
+		"a@test.sirket.com": false,
+		"a@sirket.com.evil": false,
+		"a@baskasirket.com": false,
+	} {
+		if got := relay.allowed(addr); got != want {
+			t.Errorf("allowed(%q) = %v, beklenen %v", addr, got, want)
+		}
+	}
+}
+
+// İzin listesi olmayan bir röle yapılandırması reddedilmeli: "hepsine
+// gönder" kısayolu, aracın var oluş sebebini ortadan kaldırırdı.
+func TestRelayValidation(t *testing.T) {
+	cases := map[string]*Relayer{
+		"sunucu yok":          {Allow: []string{"a.com"}},
+		"port yok":            {Host: "smtp.example.com", Allow: []string{"a.com"}},
+		"izin yok":            {Host: "smtp.example.com:587"},
+		"boş izin":            {Host: "smtp.example.com:587", Allow: []string{" "}},
+		"parolasız kullanıcı": {Host: "smtp.example.com:587", Allow: []string{"a.com"}, Username: "u"},
+	}
+	for label, r := range cases {
+		if err := r.Validate(); err == nil {
+			t.Errorf("%s: geçersiz röle yapılandırması kabul edildi", label)
+		}
+	}
+	ok := &Relayer{Host: "smtp.example.com:587", Allow: []string{"a.com"}}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("geçerli yapılandırma reddedildi: %v", err)
+	}
+}
+
+// Röle başarısız olsa bile posta yakalanmış olmalı ve sonucu arayüzde
+// görünmeli: "gitti mi gitmedi mi" sorusu cevapsız kalmamalı.
+func TestRelayFailureIsVisible(t *testing.T) {
+	relay := &Relayer{
+		Host:   "smtp.example.com:587",
+		Allow:  []string{"sirket.com"},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		send: func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			return fmt.Errorf("bağlanılamadı")
+		},
+	}
+	srv := newServer(t)
+	srv.Relay = relay
+	send(t, srv, "a@x.test", []string{"ayse@sirket.com"}, "Subject: x\r\n\r\ngövde\r\n")
+	waitFor(t, srv, 1)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		msg, _ := srv.Store.Latest()
+		if msg.Relay != nil {
+			if msg.Relay.Error == "" {
+				t.Fatal("başarısız röle hatasız görünüyor")
+			}
+			if s := srv.Store.List()[0]; s.Relayed {
+				t.Error("başarısız röle, listede gönderilmiş gibi görünüyor")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("röle sonucu postaya yazılmadı")
 }

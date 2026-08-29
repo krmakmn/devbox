@@ -40,6 +40,9 @@ const indexHTML = `<!doctype html>
   .satir .konu { font-weight:600; margin-bottom:2px; }
   .satir .kimden, .satir .zaman { color:var(--soluk); font-size:12px; }
   .not { color:var(--soluk); font-size:12px; margin:8px 0 0; }
+  .rozet.gonderildi { border-color:#16a34a; color:#16a34a; }
+  .role { margin-top:4px; font-size:12px; color:var(--soluk); }
+  .role.hata { color:#dc2626; }
   #ara { font:inherit; padding:4px 8px; width:220px; border-radius:6px;
          border:1px solid var(--kenar); background:var(--zemin); color:var(--metin); }
   #ara:focus { outline:none; border-color:var(--vurgu); }
@@ -100,6 +103,7 @@ const indexHTML = `<!doctype html>
       var rozetler = '';
       if (m.attachmentCount) rozetler += '<span class="rozet">' + m.attachmentCount + ' ek</span>';
       if (m.hasHtml) rozetler += '<span class="rozet">HTML</span>';
+      if (m.relayed) rozetler += '<span class="rozet gonderildi">gönderildi</span>';
       return '<div class="satir" data-id="' + kacar(m.id) + '">' +
         '<div class="konu">' + (kacar(m.subject) || '(konu yok)') + rozetler + '</div>' +
         '<div class="kimden">' + kacar(m.from) + ' → ' + kacar((m.to || []).join(', ')) + '</div>' +
@@ -114,6 +118,23 @@ const indexHTML = `<!doctype html>
     });
   }
 
+  // Röle açıksa postanın gerçekten gidip gitmediği görünmeli:
+  // "gitti mi gitmedi mi" sorusu cevapsız kalmamalı.
+  function roleSatiri(m) {
+    if (!m.relay) return '';
+    if (m.relay.error) {
+      return '<div class="role hata"><b>Röle:</b> gönderilemedi — ' +
+        kacar(m.relay.error) + '</div>';
+    }
+    var satir = '<div class="role"><b>Röle:</b> gönderildi → ' +
+      kacar((m.relay.recipients || []).join(', ')) + '</div>';
+    if (m.relay.skipped && m.relay.skipped.length) {
+      satir += '<div class="role"><b>Röle dışı:</b> ' +
+        kacar(m.relay.skipped.join(', ')) + ' (izin listesinde değil)</div>';
+    }
+    return satir;
+  }
+
   function detayCiz(m) {
     var sekmeler = [];
     if (m.text) sekmeler.push('metin');
@@ -124,6 +145,7 @@ const indexHTML = `<!doctype html>
       '<div><b>Kimden:</b> ' + kacar(m.from) + '</div>' +
       '<div><b>Kime:</b> ' + kacar((m.to || []).join(', ')) + '</div>' +
       '<div><b>Zaman:</b> ' + kacar(new Date(m.received).toLocaleString('tr-TR')) + '</div>' +
+      roleSatiri(m) +
       '</div>';
 
     var ekler = '';

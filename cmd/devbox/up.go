@@ -250,6 +250,7 @@ type upSession struct {
 	dnsServer  *dns.Server
 	mailSMTP   *mail.SMTPServer
 	cronRunner *cron.Runner
+	relayTo    []string
 	backendURL string
 	confPath   string
 }
@@ -452,6 +453,30 @@ func (u *upSession) startMail(e *edge.Edge) {
 
 	store := mail.NewStore(capacity)
 	srv := &mail.SMTPServer{Addr: addr, Store: store, Logger: u.logger}
+
+	if cfgRelay := u.cfg.Mail.Relay; cfgRelay != nil {
+		relay := &mail.Relayer{
+			Host:     cfgRelay.Host,
+			Username: cfgRelay.Username,
+			Allow:    cfgRelay.Allow,
+			Logger:   u.logger,
+		}
+		if cfgRelay.PasswordEnv != "" {
+			relay.Password = os.Getenv(cfgRelay.PasswordEnv)
+			if relay.Password == "" {
+				u.logger.Warn("röle parolası ortamda yok; röle kapalı",
+					"değişken", cfgRelay.PasswordEnv)
+			}
+		}
+		if relay.Password != "" || cfgRelay.Username == "" {
+			if err := relay.Validate(); err != nil {
+				u.logger.Warn("röle yapılandırması kullanılamadı; röle kapalı", "hata", err)
+			} else {
+				srv.Relay = relay
+				u.relayTo = relay.Allow
+			}
+		}
+	}
 	if err := srv.Start(); err != nil {
 		u.logger.Warn("posta yakalayıcı başlatılamadı; başka bir DevBox oturumu çalışıyor olabilir",
 			"adres", addr, "hata", err)
@@ -548,6 +573,9 @@ func (u *upSession) printSummary() {
 	if u.mailSMTP != nil {
 		fmt.Printf("  posta     : smtp %s, kutu https://%s\n",
 			u.mailSMTP.ListenAddr(), u.cfg.MailHost())
+	}
+	if len(u.relayTo) > 0 {
+		fmt.Printf("  röle      : gerçek gönderim açık → %s\n", strings.Join(u.relayTo, ", "))
 	}
 	if u.sup != nil {
 		for _, s := range u.sup.Status() {

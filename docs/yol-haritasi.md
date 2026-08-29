@@ -429,7 +429,8 @@ birlikte ele alınacak.
   `mail.<alan-adı>` altında, `devbox up` ile birlikte açılıyor. ✅
 - Kuyruk işçileri ve cron: `devbox.yaml`'daki `processes` ve `cron` blokları. ✅
 - İsteğe bağlı gerçek röle (bir projede gerçekten posta göndermek gerekirse,
-  açıkça izin verilen alan adlarına). ⏳
+  açıkça izin verilen alan adlarına). ✅ Beyaz liste zorunlu, alt alan adları
+  kapsanmıyor, parola yalnız ortam değişkeninden (`passwordEnv`).
 - Redis (Memurai ya da WSL), MinIO, Meilisearch, RabbitMQ bileşenleri. ⏳
 - **Kabul:** Laravel'den atılan posta 200 ms içinde arayüzde; `devbox mail api`
   ile son postanın gövdesi testten okunabiliyor.

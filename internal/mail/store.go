@@ -18,6 +18,12 @@ type Store struct {
 	byID     map[string]*Message
 	capacity int
 
+	// relays, röle sonuçları. Message'ın içinde tutulmuyor: röle arka
+	// planda bitiyor, yani sonucu yazan gorutin ile postayı okuyan
+	// gorutin farklı. Depoda ve kilit altında tutmak yarışı ortadan
+	// kaldırıyor.
+	relays map[string]*RelayResult
+
 	subs   map[int]chan *Message
 	nextID int
 }
@@ -29,6 +35,7 @@ func NewStore(capacity int) *Store {
 	}
 	return &Store{
 		byID:     make(map[string]*Message),
+		relays:   make(map[string]*RelayResult),
 		capacity: capacity,
 		subs:     make(map[int]chan *Message),
 	}
@@ -45,6 +52,7 @@ func (s *Store) Add(msg *Message) {
 		oldest := s.messages[0]
 		s.messages = s.messages[1:]
 		delete(s.byID, oldest.ID)
+		delete(s.relays, oldest.ID)
 	}
 
 	subs := make([]chan *Message, 0, len(s.subs))
@@ -71,7 +79,7 @@ func (s *Store) List() []Summary {
 
 	out := make([]Summary, 0, len(s.messages))
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		out = append(out, s.messages[i].Summary())
+		out = append(out, s.withRelay(s.messages[i]).Summary())
 	}
 	return out
 }
@@ -97,7 +105,7 @@ func (s *Store) Search(query string) []Summary {
 	out := make([]Summary, 0, len(s.messages))
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		if messageMatches(s.messages[i], query) {
-			out = append(out, s.messages[i].Summary())
+			out = append(out, s.withRelay(s.messages[i]).Summary())
 		}
 	}
 	return out
@@ -138,11 +146,42 @@ func foldForSearch(s string) string {
 }
 
 // Get, kimliğe göre postayı döner.
+//
+// Dönen posta bir kopya: röle sonucu kilit altında ekleniyor, çağıran
+// onu okurken arka plandaki röle gorutiniyle yarışmasın.
 func (s *Store) Get(id string) (*Message, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	msg, ok := s.byID[id]
-	return msg, ok
+	if !ok {
+		return nil, false
+	}
+	return s.withRelay(msg), true
+}
+
+// withRelay, postanın röle sonucu eklenmiş bir kopyasını döner.
+// Çağıranın kilidi tutuyor olması gerekiyor.
+func (s *Store) withRelay(msg *Message) *Message {
+	if r, ok := s.relays[msg.ID]; ok {
+		cp := *msg
+		cp.Relay = r
+		return &cp
+	}
+	return msg
+}
+
+// SetRelay, postanın röle sonucunu yazar.
+//
+// Mesajlar depo kilidi altında paylaşılıyor; röle arka planda bittiği
+// için bu alan başka bir gorutinden yazılıyor.
+func (s *Store) SetRelay(id string, result *RelayResult) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byID[id]; !ok {
+		return false
+	}
+	s.relays[id] = result
+	return true
 }
 
 // Latest, en son gelen postayı döner.
@@ -154,7 +193,7 @@ func (s *Store) Latest() (*Message, bool) {
 	if len(s.messages) == 0 {
 		return nil, false
 	}
-	return s.messages[len(s.messages)-1], true
+	return s.withRelay(s.messages[len(s.messages)-1]), true
 }
 
 // Count, saklanan posta sayısı.
@@ -170,6 +209,7 @@ func (s *Store) Clear() {
 	defer s.mu.Unlock()
 	s.messages = nil
 	s.byID = make(map[string]*Message)
+	s.relays = make(map[string]*RelayResult)
 }
 
 // Delete, tek bir postayı siler.
@@ -181,6 +221,7 @@ func (s *Store) Delete(id string) bool {
 		return false
 	}
 	delete(s.byID, id)
+	delete(s.relays, id)
 	for i, msg := range s.messages {
 		if msg.ID == id {
 			s.messages = append(s.messages[:i], s.messages[i+1:]...)
