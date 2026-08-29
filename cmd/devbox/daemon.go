@@ -134,8 +134,22 @@ devbox ps / logs onları oradan okur.
 		}
 		// Dinleyiciler API'den önce açılıyor: port alınamıyorsa
 		// kullanıcıya bunu, panel adresini yazdırmadan önce söylemeliyiz.
+		//
+		// Ama bu ölümcül DEĞİL. Çekirdek süreç yalnız kenar değil; panel,
+		// API, servisler ve günlükler de onun üzerinden gidiyor. 80'i
+		// alamamak yüzünden hiç açılmamak, kök olmayan her Linux/macOS
+		// kullanıcısını ve 80'i dolu olan herkesi paneli bile açamaz
+		// duruma sokuyordu.
+		//
+		// Kenar açılamazsa runner.Edge'i boş bırakıyoruz: projeler eskisi
+		// gibi kendi kenarlarını açar. Aynı anda tek proje çalışır ama
+		// çalışır — ve kullanıcı sebebini okur.
 		if err := edgeSrv.Listen(); err != nil {
-			return bindHatasi(context.Background(), err)
+			logger.Warn("paylaşılan kenar açılamadı; projeler kendi portlarını açacak "+
+				"(aynı anda yalnız biri çalışabilir)",
+				"hata", bindHatasi(context.Background(), err))
+			edgeSrv = nil
+			runner.Edge = nil
 		}
 	}
 

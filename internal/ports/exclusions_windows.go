@@ -23,3 +23,8 @@ func readExcludedRanges(ctx context.Context) ([]Range, error) {
 	}
 	return ParseExcludedRanges(string(out)), nil
 }
+
+// listenersCommand, portu kimin tuttuğunu gösteren komut.
+func listenersCommand(port int) string {
+	return fmt.Sprintf("netstat -ano | findstr :%d", port)
+}

@@ -129,6 +129,32 @@ func tcpHazirDenemesi(t *testing.T, sonDeneme bool) (calindi bool) {
 	elapsed := time.Since(start)
 	defer svc.Stop()
 
+	// Erken dönüşün teşhisi HEMEN yapılmalı.
+	//
+	// İlk düzeltmem yetersizdi ve CI'da yeniden kırmızıya döndü: yanıtı
+	// sonradan kimin verdiğine bakıyordu. Yabancı bir dinleyici erken
+	// cevap verip çekilse bile, 600 ms sonra bizim sahte servis ayağa
+	// kalkıyor ve gecikmeli denetim onu görüp "bizim süreç" diyordu.
+	// Önemli olan Start'ın döndüğü ANDA kimin cevapladığı.
+	//
+	// Sahte servis 600 ms uyuduğu için, 500 ms'den önce gelen HERHANGİ
+	// bir yanıt bize ait olamaz. Yanıt bizden geliyorsa gecikme hiç
+	// uygulanmamış demektir; o da testin kendi düzeneğinde bir kusurdur
+	// ve gürültüye boğulmadan görülmeli.
+	if elapsed < 500*time.Millisecond {
+		govde, ok := hemenSor(addr)
+		bizim := fmt.Sprintf("pid=%d", svc.Status().PID)
+		if ok && govde == bizim {
+			t.Fatalf("Start %v sonra döndü ve yanıt bizim sürecimizden geldi; "+
+				"FAKE_STARTUP_DELAY uygulanmamış olmalı", elapsed)
+		}
+		if !sonDeneme {
+			return true
+		}
+		t.Fatalf("Start %v sonra döndü; hazır olmayı beklemiyor "+
+			"(o anda adresi başkası dinliyordu: %q)", elapsed, govde)
+	}
+
 	// Start döndüğünde adres bağlantı kabul ediyor olmalı.
 	//
 	// Ayrım önemli: bağlantının REDDEDİLMESİ, hazır olma ölçütünün yalan
@@ -159,20 +185,26 @@ func tcpHazirDenemesi(t *testing.T, sonDeneme bool) (calindi bool) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	bizim := fmt.Sprintf("pid=%d", svc.Status().PID)
-	if govde != bizim {
+	if bizim := fmt.Sprintf("pid=%d", svc.Status().PID); govde != bizim {
 		if !sonDeneme {
 			return true
 		}
 		t.Fatalf("adresi başka bir süreç dinliyor: gövde %q, %q bekleniyordu", govde, bizim)
 	}
-
-	// Yanıtın bizim sürecimizden geldiği kanıtlandı; süre ölçümü artık
-	// gerçekten hazır olmayı bekleyip beklemediğimizi söylüyor.
-	if elapsed < 500*time.Millisecond {
-		t.Errorf("Start %v sonra döndü; hazır olmayı beklemiyor", elapsed)
-	}
 	return false
+}
+
+// hemenSor, adrese tek bir kısa istek yapar ve gövdeyi döner.
+// Yeniden denemez: amacı "şu anda kim cevap veriyor" sorusunu yanıtlamak.
+func hemenSor(addr string) (string, bool) {
+	istemci := &http.Client{Timeout: 300 * time.Millisecond}
+	resp, err := istemci.Get("http://" + addr)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return string(b), true
 }
 
 func TestWaitsForLogReadiness(t *testing.T) {

@@ -272,7 +272,7 @@ func (a *Allocator) diagnosis(port int) string {
 		sb.WriteString("80 ve 443 için en sık sebep IIS (W3SVC) ya da\n")
 		sb.WriteString("\"World Wide Web Publishing Service\". Durdurmayı deneyin.\n")
 	}
-	sb.WriteString("Görmek için: netstat -ano | findstr :" + strconv.Itoa(port) + "\n")
+	sb.WriteString("Görmek için: " + listenersCommand(port) + "\n")
 	return sb.String()
 }
 
