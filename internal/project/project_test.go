@@ -131,7 +131,13 @@ func TestValidateRejectsBadConfigs(t *testing.T) {
 // devbox.yaml depodan geliyor; klonlayan kişinin makinesinde istediği
 // dizini sunmaya yetkisi olmamalı.
 func TestRootCannotEscapeProjectDirectory(t *testing.T) {
-	for _, root := range []string{"../../etc", "/etc", "public/../../..", `..\windows`} {
+	// filepath.IsAbs platforma bağlı: Windows'ta "/etc", Linux'ta
+	// "C:/Windows" mutlak sayılmıyor. devbox.yaml depodan geldiği için iki
+	// platformda da aynı biçimde reddedilmeli.
+	for _, root := range []string{
+		"../../etc", "/etc", "public/../../..", `..\windows`,
+		`C:\Windows`, "c:/windows", `\\sunucu\paylasim`, "/",
+	} {
 		cfg, err := Parse([]byte("name: a\ndomain: a.test\nroot: " + root + "\n"))
 		if err != nil {
 			continue

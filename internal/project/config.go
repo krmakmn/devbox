@@ -205,7 +205,7 @@ func (c *Config) Validate() error {
 	// geliyor ve klonlayan kişinin makinesinde istediği dizini sunmaya
 	// yetkisi olmamalı.
 	if c.Root != "" {
-		if filepath.IsAbs(c.Root) || strings.Contains(filepath.ToSlash(c.Root), "..") {
+		if isAbsoluteAnyPlatform(c.Root) || strings.Contains(filepath.ToSlash(c.Root), "..") {
 			return fmt.Errorf("root proje dizininin içinde ve göreli olmalı: %q", c.Root)
 		}
 	}
@@ -238,6 +238,31 @@ func (c *Config) Save(dir string) error {
 		"# Bu dosyayı depoya ekleyin: ekip arkadaşınız klonlayıp \"devbox up\"\n" +
 		"# dediğinde aynı ortam kurulur.\n\n")
 	return os.WriteFile(filepath.Join(dir, FileName), append(header, data...), 0o644)
+}
+
+// isAbsoluteAnyPlatform, yolun herhangi bir platformun kurallarına göre
+// mutlak olup olmadığını söyler.
+//
+// filepath.IsAbs platforma bağlı: Windows'ta "/etc" mutlak sayılmıyor
+// (sürücü harfi yok), Linux'ta "C:/Windows" mutlak sayılmıyor. Ama
+// devbox.yaml depodan geliyor ve iki platformda da aynı biçimde
+// doğrulanmalı — Linux'ta yazılıp reddedilen bir değer Windows'ta kabul
+// edilmemeli. Bu yüzden her iki kuralı da uyguluyoruz.
+func isAbsoluteAnyPlatform(p string) bool {
+	if p == "" {
+		return false
+	}
+	if p[0] == '/' || p[0] == '\\' {
+		return true
+	}
+	// Windows sürücü öneki: "C:", "c:/proje"
+	if len(p) >= 2 && p[1] == ':' {
+		c := p[0]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func validName(s string) bool {

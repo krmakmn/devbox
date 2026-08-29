@@ -97,17 +97,37 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("dns: adres çözülemedi: %w", err)
 	}
-	udp, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return fmt.Errorf("dns: UDP dinlenemedi: %w", err)
+
+	// DNS'in aynı numarayı hem UDP'de hem TCP'de dinlemesi gerekiyor, ama
+	// iki protokolün port uzayları ayrı: UDP'de boş olan bir numara TCP'de
+	// dolu olabilir. İşletim sistemine port seçtiriyorsak (port 0) ikisi de
+	// tutana kadar deniyoruz.
+	attempts := 1
+	if udpAddr.Port == 0 {
+		attempts = 20
 	}
 
-	// UDP portu 0 ile açıldıysa TCP'yi de aynı porta bağla.
-	tcpAddr := &net.TCPAddr{IP: udpAddr.IP, Port: udp.LocalAddr().(*net.UDPAddr).Port}
-	tcp, err := net.ListenTCP("tcp", tcpAddr)
-	if err != nil {
+	var udp *net.UDPConn
+	var tcp *net.TCPListener
+	var lastErr error
+
+	for i := 0; i < attempts; i++ {
+		udp, err = net.ListenUDP("udp", udpAddr)
+		if err != nil {
+			return fmt.Errorf("dns: UDP dinlenemedi: %w", err)
+		}
+
+		port := udp.LocalAddr().(*net.UDPAddr).Port
+		tcp, err = net.ListenTCP("tcp", &net.TCPAddr{IP: udpAddr.IP, Port: port})
+		if err == nil {
+			break
+		}
+		lastErr = err
 		udp.Close()
-		return fmt.Errorf("dns: TCP dinlenemedi: %w", err)
+		udp = nil
+	}
+	if tcp == nil {
+		return fmt.Errorf("dns: TCP dinlenemedi: %w", lastErr)
 	}
 
 	s.mu.Lock()
