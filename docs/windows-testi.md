@@ -48,6 +48,8 @@ doğrulandı. CI'nin hiç göremediği şeyler bunlar:
 | **İş Nesneleri:** zorla öldürmede 19 `php-cgi.exe`'nin hepsi öldü | ✅ |
 | Çekirdek süreç + panelden proje başlatma | ✅ |
 | SMTP yakalayıcı: gönderilen posta kutuya düştü | ✅ |
+| **Ağdan erişim ayrımı:** site 200, denetleyici 403 | ✅ |
+| 443'ü tek süreç dinliyor (`::`, çift yığın) | ✅ |
 
 Bu masaüstünde 80 ve 443 boştu; rezerve port yoluna girilmedi.
 
@@ -59,9 +61,13 @@ buydu: `php-cgi.exe` arkada birikir ve sonraki başlatmada port
 çakışması yapar.
 
 Hâlâ **denenmemiş** olanlar: Firefox'un NSS deposu (o makinede Firefox
-kurulu değildi), üç tarayıcının hepsi, denetleyici arayüzü ve "tekrar
-gönder", ağdan erişim ayrımı, gerçek Apache/Nginx, veritabanları ve
-Laragon'dan göç.
+kurulu değildi), üç tarayıcının hepsi, denetleyici arayüzünde "tekrar
+gönder", gerçek Apache/Nginx, veritabanları ve Laragon'dan göç.
+
+Ağdan erişim ayrımı sınavı özellikle önemli: paylaşılan kenar araya
+girince proje sürecinin gördüğü uzak adres her zaman 127.0.0.1 oluyor,
+yani kısıtı kenarın uygulaması gerekiyor. Gerçek bir LAN adresi
+(192.168.x.x) üzerinden doğrulandı — site 200, denetleyici 403.
 
 **Bilinen eksik:** kenar ortaklaştırıldı ama SMTP portu (1025)
 ortaklaştırılmadı. İki proje birden çalışırken portu ilk başlayan alır,
