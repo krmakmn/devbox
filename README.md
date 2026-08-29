@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/scaffold` | Proje şablonları: çerçevenin kendi kurucusunu çağırır |
 | `internal/projects` | Proje kaydı ve projeleri çekirdek süreç üzerinden çalıştırma |
 | `internal/services` | Yan servisler: Redis/Valkey, Meilisearch, MinIO — port tahsisi, proje başına veri dizini |
 | `internal/cron` | Zamanlanmış görevler: cron ifadesi ayrıştırma ve üst üste binmeyen çalıştırma |
@@ -178,6 +179,20 @@ oturum var: `devbox ui` adresi `?jeton=…` ile açıyor, sunucu çerezi kurup j
 adrese yönlendiriyor — jeton adres çubuğunda ve geçmişte kalmıyor. Çerezin
 getirdiği CSRF riski üç katmanla kapatılıyor: `SameSite=Strict`, durum değiştiren
 isteklerde `Origin` denetimi ve zaten var olan `Host` denetimi.
+
+Şablon tarafında: `devbox new laravel magaza` bir "Laravel şablonu" açmıyor,
+**Laravel'in kendi kurucusunu** çağırıyor (`composer create-project`). Şablon
+tutmak, çerçevenin dosya düzenini bu depoya kopyalamak demek olurdu; o kopya ilk
+günden eskimeye başlar ve kullanıcı bir yıl önceki iskeletle başlayıp sorunu
+DevBox'a yazar. DevBox'ın işi ortam kurmak, çerçeve dağıtmak değil. Kurulan
+iskelet sonra **algılamaya** veriliyor — şablon adına değil, kurucunun diskte
+bıraktığına bakılıyor.
+
+Bunu gerçek kurucularla denerken bir hata çıktı: `create-vite` verilen yolu
+çalışma dizinine ekliyor, yani mutlak yol verilince proje
+`/tmp/yeni/tmp/yeni/arayuz` gibi bir yere kuruluyordu. Komut artık hedefin üst
+dizininde çalışıp yalnız adı alıyor. Regresyon testi, çağrıldığı dizini ve
+argümanlarını yazan sahte bir kurucuyla bunu sabitliyor.
 
 Yan servis tarafında: `devbox.yaml`'daki `services` bloğu Redis, Meilisearch ve
 MinIO'yu projeyle birlikte açıyor; her projenin kendi veri dizini var, portlar

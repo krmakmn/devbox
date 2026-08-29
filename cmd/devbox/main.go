@@ -80,6 +80,8 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "new":
+		return runNew(args[1:])
 	case "project", "projects":
 		return runProject(args[1:])
 	case "ui":
@@ -102,6 +104,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `devbox — Windows yerel geliştirme ortamı
 
 Kullanım:
+  devbox new <şablon> <ad>    yeni proje kur (Laravel, Next, Vite, PHP…)
   devbox init                 projeyi tanı ve devbox.yaml üret
   devbox up                   devbox.yaml'ı okuyup projeyi ayağa kaldır
   devbox down                 up'ın bıraktığı sunucu yapılandırmasını kaldır
