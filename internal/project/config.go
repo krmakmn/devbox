@@ -94,6 +94,9 @@ type Config struct {
 	// Mail, yerel posta yakalayıcı ayarları.
 	Mail Mail `yaml:"mail,omitempty"`
 
+	// Inspect, HTTP denetleyicisi ayarları.
+	Inspect Inspect `yaml:"inspect,omitempty"`
+
 	// dir, yapılandırmanın okunduğu dizin. Dosyaya yazılmaz.
 	dir string `yaml:"-"`
 }
@@ -253,6 +256,31 @@ type MailRelay struct {
 	// Allow, gerçekten posta gidecek alıcılar. Tam adres
 	// ("kerim@sirket.com") ya da alan adı ("sirket.com").
 	Allow []string `yaml:"allow"`
+}
+
+// Inspect, HTTP denetleyicisi ayarları.
+//
+// Öntanımlı açık. Bir hata ayıklama aracının "önce beni aç, sonra hatayı
+// tekrar üret" demesi, en çok ihtiyaç duyulan anda elde olmaması demek —
+// hatayı zaten bir kez yaşamış oluyorsunuz. Bedeli sınırlı: kayıt
+// bellekte, sayısı ve gövde boyutu sınırlı.
+type Inspect struct {
+	// Disabled, denetleyiciyi kapatır.
+	Disabled bool `yaml:"disabled,omitempty"`
+
+	// Capacity, saklanacak en fazla istek. 0 ise varsayılan.
+	Capacity int `yaml:"capacity,omitempty"`
+
+	// Host, denetleyicinin alan adı. Boşsa inspect.<domain>.
+	Host string `yaml:"host,omitempty"`
+}
+
+// InspectHost, denetleyicinin alan adı.
+func (c *Config) InspectHost() string {
+	if c.Inspect.Host != "" {
+		return c.Inspect.Host
+	}
+	return "inspect." + c.Domain
 }
 
 // CronEntry, zamanlanmış tek bir görev.
@@ -437,6 +465,12 @@ func (c *Config) Validate() error {
 		if _, _, err := net.SplitHostPort(c.Mail.SMTP); err != nil {
 			return fmt.Errorf("geçersiz mail.smtp adresi %q (host:port bekleniyor)", c.Mail.SMTP)
 		}
+	}
+	if c.Inspect.Host != "" && !validDomain(c.Inspect.Host) {
+		return fmt.Errorf("geçersiz denetleyici alan adı %q", c.Inspect.Host)
+	}
+	if c.Inspect.Capacity < 0 {
+		return fmt.Errorf("inspect.capacity negatif olamaz: %d", c.Inspect.Capacity)
 	}
 	if c.Mail.Capacity < 0 {
 		return fmt.Errorf("mail.capacity negatif olamaz: %d", c.Mail.Capacity)

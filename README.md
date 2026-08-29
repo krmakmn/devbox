@@ -53,6 +53,7 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/inspect` | HTTP denetleyicisi: kenardan geçen istek/yanıt kaydı ve tekrar gönderme |
 | `internal/container` | Konteyner sürücüsü: docker/podman ile servis çalıştırma |
 | `internal/acme` | Yerel ACME (RFC 8555) sunucusu: JWS doğrulama, http-01, CSR imzalama |
 | `internal/procstat` | Süreçlerin bellek ve işlemci kullanımı (Linux /proc, Windows psapi) |
@@ -152,6 +153,25 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Denetleyici tarafında: `https://inspect.<alan-adı>` kenardan geçen her isteği ve
+yanıtı gösteriyor — başlıklar, gövdeler, süre — ve bir isteği değiştirmeden
+tekrar gönderebiliyor. Bugünkü seçenekler tarayıcının geliştirici araçları
+(yalnız tarayıcıdan çıkan isteği görür, sunucudan sunucuya gideni değil) ya da
+Charles/Proxyman (ayrı vekil, ayrı kök sertifika, ayrı kurulum). DevBox'ın kenarı
+zaten bütün trafiğin geçtiği yer.
+
+Üç karar: kayıt **öntanımlı açık** (bir hata ayıklama aracının "önce beni aç,
+sonra hatayı tekrar üret" demesi, en çok ihtiyaç duyulan anda elde olmaması
+demek), yalnız **bellekte** (diske yazmak, kullanıcının haberi olmadan parola ve
+jeton içeren istekleri kalıcılaştırmak olurdu) ve gövdeler **64 KB'de kesiliyor**
+(bir dosya yükleme isteği belleği tek başına doldurabilir; kesilme arayüzde
+söyleniyor). Tekrar gönderme, isteği arka uca değil **kendi kenarımıza** geri
+gönderiyor: aksi hâlde kenarın eklediği başlıklar atlanır ve "aynı isteği bir
+daha yap" sözü tutulmamış olurdu.
+
+Denetleyicinin kendi trafiği kaydedilmiyor — her yoklama yeni bir kayıt üretir,
+o kayıt akışa düşer, arayüz yeniden yoklar: kendini besleyen bir döngü.
 
 Konteyner tarafında: `devbox.yaml`'daki bir servis `driver: docker` ile
 konteynerde koşabiliyor; kenar vekili ona da alan adı verip TLS'i sonlandırıyor.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"github.com/krmakmn/devbox/internal/cron"
 	"github.com/krmakmn/devbox/internal/dns"
 	"github.com/krmakmn/devbox/internal/edge"
+	"github.com/krmakmn/devbox/internal/inspect"
 	"github.com/krmakmn/devbox/internal/mail"
 	"github.com/krmakmn/devbox/internal/paths"
 	"github.com/krmakmn/devbox/internal/phppool"
@@ -149,6 +151,7 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 	}
 
 	up.startMail(e)
+	up.startInspector(e, store, *httpsAddr)
 
 	if err := up.startServices(ctx, e); err != nil {
 		return err
@@ -172,6 +175,23 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 	}
 
 	srv := &edge.Server{Edge: e, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr, TLSConfig: store.TLSConfig()}
+	if up.inspector != nil {
+		inspectHost := cfg.InspectHost()
+		recorder := up.inspector
+		srv.Wrap = func(next http.Handler) http.Handler {
+			recorded := recorder.Middleware(next)
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Denetleyicinin kendi trafiği kaydedilmiyor: her
+				// yoklama yeni bir kayıt üretir, o kayıt akışa düşer,
+				// arayüz yeniden yoklar — kendini besleyen bir döngü.
+				if hostOnly(r.Host) == inspectHost {
+					next.ServeHTTP(w, r)
+					return
+				}
+				recorded.ServeHTTP(w, r)
+			})
+		}
+	}
 
 	// Bu satır aynı zamanda çekirdek süreçle sözleşme: projects.Runner
 	// projeyi "hazır" saymak için tam olarak bunu arıyor. Metni tek bir
@@ -263,6 +283,7 @@ type upSession struct {
 	relayTo    []string
 	svcManager *services.Manager
 	containers []containerRef
+	inspector  *inspect.Recorder
 	backendURL string
 	confPath   string
 }
@@ -555,6 +576,32 @@ func (u *upSession) ensureSupervisor() error {
 	return nil
 }
 
+// startInspector, HTTP denetleyicisini kurar ve kenarı ona sarar.
+//
+// Kayıt, kenarın en dışında duruyor: TLS sonlandıktan sonra ama
+// yönlendirmeden önce. Böylece isteği uygulamanın gördüğü hâliyle
+// kaydediyoruz — kenarın eklediği başlıklar dahil.
+func (u *upSession) startInspector(e *edge.Edge, store *certs.Store, httpsAddr string) {
+	if u.cfg.Inspect.Disabled {
+		return
+	}
+	recorder := inspect.NewRecorder(u.cfg.Inspect.Capacity, 0)
+	recorder.SetEnabled(true)
+	u.inspector = recorder
+
+	_, port := splitPort(httpsAddr)
+	if port == "" {
+		port = "443"
+	}
+	e.Handle(u.cfg.InspectHost(), &inspect.Handler{
+		Recorder:  recorder,
+		EdgeAddr:  "127.0.0.1:" + port,
+		TLSConfig: &tls.Config{RootCAs: store.RootPool()},
+		Domain:    u.cfg.Domain,
+	})
+	store.Certificate(u.cfg.InspectHost())
+}
+
 // startServices, devbox.yaml'daki yan servisleri ayağa kaldırır.
 //
 // Servisler süreçlerden önce başlıyor: kuyruk işçisi Redis'i hazır
@@ -725,6 +772,9 @@ func (u *upSession) printSummary() {
 		fmt.Printf("  posta     : smtp %s, kutu https://%s\n",
 			u.mailSMTP.ListenAddr(), u.cfg.MailHost())
 	}
+	if u.inspector != nil {
+		fmt.Printf("  denetleyici: https://%s\n", u.cfg.InspectHost())
+	}
 	if len(u.relayTo) > 0 {
 		fmt.Printf("  röle      : gerçek gönderim açık → %s\n", strings.Join(u.relayTo, ", "))
 	}
@@ -781,4 +831,12 @@ func generatePHPIniFromProject(phpExe string, cfg *project.Config) (string, erro
 		settings = append(settings, k+"="+v)
 	}
 	return generatePHPIni(phpExe, cfg.Name, cfg.PHP.Xdebug, cfg.PHP.Extensions, settings)
+}
+
+// hostOnly, Host başlığından portu atar.
+func hostOnly(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }

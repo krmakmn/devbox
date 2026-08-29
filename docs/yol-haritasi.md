@@ -502,7 +502,10 @@ birlikte ele alınacak.
   yeniden başlatma, durum bedava geliyor); port yalnız geri döngüye yayınlanıyor;
   bağlamalar proje dışına çıkamıyor. Gerçek Docker ile uçtan uca denendi.
 - **HTTP denetleyicisi:** kenardan aynalanan istek/yanıt akışı, gövde ve başlık
-  incelemesi, tekrar gönderme (yerel Charles/Proxyman).
+  incelemesi, tekrar gönderme (yerel Charles/Proxyman). ✅ `internal/inspect`,
+  `https://inspect.<alan-adı>`. Kayıt bellekte ve sınırlı; tekrar, isteği kendi
+  kenarımıza geri gönderiyor. Gerçek tarayıcıda denendi (canlı akış, süzgeç,
+  tekrar).
 - **Tünelleme:** Cloudflare Tunnel / ngrok entegrasyonu ile `devbox share magaza`.
 - Ekip paylaşımı: `devbox.yaml` + kilit dosyası ile birebir sürüm eşleme.
 - **Kabul:** WSL2'deki bir konteyner, DevBox'un yerel ACME'sinden sertifika alıp

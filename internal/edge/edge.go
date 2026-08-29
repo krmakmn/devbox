@@ -282,6 +282,14 @@ type Server struct {
 	// TLSConfig, sertifika sağlayıcısı (certs.Store.TLSConfig()).
 	TLSConfig *tls.Config
 
+	// Wrap, verilirse HTTPS işleyicisini sarar.
+	//
+	// HTTP denetleyicisi bunu kullanıyor: kayıt, TLS sonlandıktan sonra
+	// ama yönlendirmeden önce olmalı ki istek uygulamanın gördüğü hâliyle
+	// kaydedilsin. HTTP dinleyicisi sarılmıyor; oradan geçen tek şey
+	// HTTPS'e yönlendirme.
+	Wrap func(http.Handler) http.Handler
+
 	httpSrv  *http.Server
 	httpsSrv *http.Server
 }
@@ -294,9 +302,13 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		Handler:           s.Edge.RedirectHandler(nil),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
+	var httpsHandler http.Handler = s.Edge
+	if s.Wrap != nil {
+		httpsHandler = s.Wrap(httpsHandler)
+	}
 	s.httpsSrv = &http.Server{
 		Addr:              s.HTTPSAddr,
-		Handler:           s.Edge,
+		Handler:           httpsHandler,
 		TLSConfig:         s.TLSConfig,
 		ReadHeaderTimeout: 15 * time.Second,
 	}
