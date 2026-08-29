@@ -82,6 +82,33 @@ func TestStartsAndReportsRunning(t *testing.T) {
 // başlamamış bir servise bağlanmak, kullanıcının göreceği ilk hatanın
 // gerçek sebeple ilgisiz olması demek.
 func TestWaitsForTCPReadiness(t *testing.T) {
+	// Bu test bir kez yanlış sebeple kırmızıya döndü ve sebebi öğretici:
+	// freeAddr portu seçip bırakıyor, sahte servis ise 600 ms sonra
+	// bağlanıyor. Arada port kimseye ait değil ve meşgul bir Windows
+	// koşucusunda o pencere başkasına yetiyor. O zaman TCPReady erken
+	// başarılı oluyor, test de "hazır olmayı beklemiyor" diyor — oysa
+	// bekleyen mekanizmada bir kusur yok.
+	//
+	// Düzeltme testi zayıflatmıyor, güçlendiriyor: sahte servis gövdede
+	// kendi pid'ini söylüyor, biz de yanıtın BİZİM sürecimizden geldiğini
+	// doğruluyoruz. Yani ölçüt artık "bir şey dinliyor" değil, "beklediğimiz
+	// süreç dinliyor". Port çalınmışsa bunu kanıta bağlayıp yeni bir portla
+	// yeniden deniyoruz; ölçütün yalan söylemesi ise hâlâ anında düşürüyor.
+	const deneme = 3
+	for i := 0; i < deneme; i++ {
+		calindi := tcpHazirDenemesi(t, i == deneme-1)
+		if !calindi {
+			return
+		}
+		t.Logf("port başka bir dinleyici tarafından alınmış; yeni portla yeniden deneniyor (%d/%d)", i+1, deneme)
+	}
+}
+
+// tcpHazirDenemesi, tek bir denemeyi yürütür. Port başkası tarafından
+// alınmışsa true döner ve (son deneme değilse) hiçbir şeyi düşürmez.
+func tcpHazirDenemesi(t *testing.T, sonDeneme bool) (calindi bool) {
+	t.Helper()
+
 	sup := newSupervisor(t)
 	addr := freeAddr(t)
 
@@ -100,10 +127,8 @@ func TestWaitsForTCPReadiness(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	elapsed := time.Since(start)
+	defer svc.Stop()
 
-	if elapsed < 500*time.Millisecond {
-		t.Errorf("Start %v sonra döndü; hazır olmayı beklemiyor", elapsed)
-	}
 	// Start döndüğünde adres bağlantı kabul ediyor olmalı.
 	//
 	// Ayrım önemli: bağlantının REDDEDİLMESİ, hazır olma ölçütünün yalan
@@ -115,11 +140,14 @@ func TestWaitsForTCPReadiness(t *testing.T) {
 	// sıfırlanmasına yol açabiliyor (CI'da görüldü). Zaten bu zayıflık
 	// yüzünden veritabanı sürücüleri TCPReady değil LogReady kullanıyor;
 	// bkz. internal/database.
+	var govde string
 	son := time.Now().Add(5 * time.Second)
 	for {
 		resp, err := http.Get("http://" + addr)
 		if err == nil {
+			b, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			govde = string(b)
 			break
 		}
 		if errors.Is(err, syscall.ECONNREFUSED) {
@@ -130,6 +158,21 @@ func TestWaitsForTCPReadiness(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+
+	bizim := fmt.Sprintf("pid=%d", svc.Status().PID)
+	if govde != bizim {
+		if !sonDeneme {
+			return true
+		}
+		t.Fatalf("adresi başka bir süreç dinliyor: gövde %q, %q bekleniyordu", govde, bizim)
+	}
+
+	// Yanıtın bizim sürecimizden geldiği kanıtlandı; süre ölçümü artık
+	// gerçekten hazır olmayı bekleyip beklemediğimizi söylüyor.
+	if elapsed < 500*time.Millisecond {
+		t.Errorf("Start %v sonra döndü; hazır olmayı beklemiyor", elapsed)
+	}
+	return false
 }
 
 func TestWaitsForLogReadiness(t *testing.T) {

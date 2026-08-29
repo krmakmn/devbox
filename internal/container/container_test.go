@@ -3,6 +3,8 @@ package container
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -59,17 +61,69 @@ func TestArgsAreDeterministic(t *testing.T) {
 }
 
 func TestRelativeVolumesResolveAgainstWorkDir(t *testing.T) {
+	// Yollar sabit yazılmıyor, işletim sisteminden alınıyor. Sabit POSIX
+	// yolu yazmak testi Windows'ta hem anlamsız hem de yanıltıcı
+	// kılıyordu: orada "/mutlak" mutlak sayılmaz (sürücü harfi yok), o
+	// yüzden test gerçek bir kusuru değil kendi varsayımını ölçüyordu.
+	//
+	// t.TempDir Windows'ta sürücü harfli bir yol veriyor; bu, ana makine
+	// yolunun iki nokta üst üsteden yanlış bölünmesi kusurunu da doğal
+	// olarak kapsıyor.
+	calisma := t.TempDir()
+	mutlak := t.TempDir()
+
 	spec := Spec{
 		Project: "p", Name: "s", Image: "img", ContainerPort: 80, HostPort: 1,
-		Volumes: []string{"./veri:/data", "/mutlak:/m"},
-		WorkDir: "/kod/magaza",
+		Volumes: []string{"./veri:/data", mutlak + ":/m"},
+		WorkDir: calisma,
 	}
 	args := strings.Join(spec.Args(), " ")
-	if !strings.Contains(args, "/kod/magaza/veri:/data") {
-		t.Errorf("göreli bağlama çözülmemiş: %s", args)
+
+	beklenen := filepath.Join(calisma, "veri") + ":/data"
+	if !strings.Contains(args, beklenen) {
+		t.Errorf("göreli bağlama çözülmemiş: %q bekleniyordu\n%s", beklenen, args)
 	}
-	if !strings.Contains(args, "/mutlak:/m") {
-		t.Errorf("mutlak bağlama bozulmuş: %s", args)
+	if !strings.Contains(args, mutlak+":/m") {
+		t.Errorf("mutlak bağlama bozulmuş: %q bekleniyordu\n%s", mutlak+":/m", args)
+	}
+}
+
+// TestSplitVolume, ayırmanın kendisini doğrudan sınıyor. Sürücü harfli
+// durum yalnız Windows'ta farklı davranıyor ama tablo her yerde koşuyor:
+// filepath.VolumeName Unix'te boş döndüğü için "c:/veri" orada adı "c"
+// olan göreli dizin olarak okunmalı.
+func TestSplitVolume(t *testing.T) {
+	durumlar := []struct {
+		giris     string
+		host      string
+		rest      string
+		ok        bool
+		yalnizWin bool
+	}{
+		{giris: "./veri:/data", host: "./veri", rest: "/data", ok: true},
+		{giris: "/mutlak:/m", host: "/mutlak", rest: "/m", ok: true},
+		{giris: "/veri:/data:ro", host: "/veri", rest: "/data:ro", ok: true},
+		{giris: "hedefsiz", ok: false},
+		{giris: `C:\kod\veri:/data`, host: `C:\kod\veri`, rest: "/data", ok: true, yalnizWin: true},
+		{giris: `C:/kod/veri:/data:ro`, host: `C:/kod/veri`, rest: "/data:ro", ok: true, yalnizWin: true},
+	}
+
+	for _, d := range durumlar {
+		if d.yalnizWin && runtime.GOOS != "windows" {
+			continue
+		}
+		host, rest, ok := splitVolume(d.giris)
+		if ok != d.ok {
+			t.Errorf("splitVolume(%q) ok=%v, %v bekleniyordu", d.giris, ok, d.ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if host != d.host || rest != d.rest {
+			t.Errorf("splitVolume(%q) = (%q, %q), (%q, %q) bekleniyordu",
+				d.giris, host, rest, d.host, d.rest)
+		}
 	}
 }
 

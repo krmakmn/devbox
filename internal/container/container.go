@@ -117,7 +117,7 @@ func (s Spec) Args() []string {
 		args = append(args, "-e", key+"="+s.Env[key])
 	}
 	for _, vol := range s.Volumes {
-		host, target, ok := strings.Cut(vol, ":")
+		host, target, ok := splitVolume(vol)
 		if !ok {
 			continue
 		}
@@ -129,6 +129,33 @@ func (s Spec) Args() []string {
 	args = append(args, s.Image)
 	args = append(args, s.Command...)
 	return args
+}
+
+// splitVolume, "kaynak:hedef[:seçenek]" dizisini ana makine yolu ve
+// gerisi olarak ayırır.
+//
+// İlk iki nokta üst üsteden bölmek Windows'ta yanlış sonuç veriyordu:
+// "C:\\kod\\veri:/data" için ana makine yolu "C" oluyor, gerisi
+// "\\kod\\veri:/data". Sonra filepath.IsAbs("C") false döndüğü için yol
+// çalışma dizinine ekleniyor ve bağlama sessizce bambaşka bir yeri
+// gösteriyordu. Windows birincil hedefimiz olduğu için bu gerçek bir
+// kusurdu — üstelik sessiz olanından.
+//
+// filepath.VolumeName tam da bu işi platforma göre yapıyor: Windows'ta
+// "C:" ya da "\\\\sunucu\\pay" döner, Unix'te boş. Böylece GOOS'a elle
+// bakmaya gerek kalmıyor ve Unix'te "c:/data" (adı "c" olan göreli
+// dizin) hâlâ doğru okunuyor.
+//
+// Hedef tarafı olduğu gibi bırakılıyor: "/data:ro" gibi seçenekler
+// zincirin sonuna eklendiği için kendiliğinden korunuyor.
+func splitVolume(vol string) (host, rest string, ok bool) {
+	start := len(filepath.VolumeName(vol))
+	i := strings.Index(vol[start:], ":")
+	if i < 0 {
+		return "", "", false
+	}
+	i += start
+	return vol[:i], vol[i+1:], true
 }
 
 // ServiceConfig, denetçi yapılandırmasını üretir.
