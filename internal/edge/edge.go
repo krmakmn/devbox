@@ -23,6 +23,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -292,11 +293,36 @@ type Server struct {
 
 	httpSrv  *http.Server
 	httpsSrv *http.Server
+	httpLn   net.Listener
+	httpsLn  net.Listener
 }
 
-// ListenAndServe, iki dinleyiciyi de açar ve bağlam iptal edilene kadar
-// hizmet verir.
-func (s *Server) ListenAndServe(ctx context.Context) error {
+// BindError, dinleyici açılamadığında dönen hata.
+//
+// Portu ayrı bir alanda taşıyor: çağıran, kullanıcıya ne olduğunu
+// anlatmak için hangi portun tutulamadığını bilmek zorunda.
+type BindError struct {
+	Addr string
+	Port int
+	Err  error
+}
+
+func (e *BindError) Error() string {
+	return fmt.Sprintf("edge: %s dinlenemedi: %v", e.Addr, e.Err)
+}
+
+func (e *BindError) Unwrap() error { return e.Err }
+
+// Listen, iki dinleyiciyi de açar.
+//
+// Serve'den ayrı olmasının sebebi bir kusurdu: "devbox up" projeyi hazır
+// ilan edip sonra dinleyiciyi açıyordu. Port tutulamadığında kullanıcı
+// önce "hazır: https://…" satırını, hemen ardından anlamsız bir soket
+// hatasını görüyordu — üstelik tarayıcıya gittiğinde hiçbir şey yoktu.
+// Artık bağlanma önce oluyor; hazır denince gerçekten hazır.
+//
+// Hata dönerse açılmış dinleyici bırakılmıyor.
+func (s *Server) Listen() error {
 	s.httpSrv = &http.Server{
 		Addr:              s.HTTPAddr,
 		Handler:           s.Edge.RedirectHandler(nil),
@@ -313,14 +339,37 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 
+	httpLn, err := net.Listen("tcp", s.HTTPAddr)
+	if err != nil {
+		return &BindError{Addr: s.HTTPAddr, Port: portOf(s.HTTPAddr), Err: err}
+	}
+	httpsLn, err := net.Listen("tcp", s.HTTPSAddr)
+	if err != nil {
+		httpLn.Close()
+		return &BindError{Addr: s.HTTPSAddr, Port: portOf(s.HTTPSAddr), Err: err}
+	}
+
+	s.httpLn, s.httpsLn = httpLn, httpsLn
+	return nil
+}
+
+// Serve, açılmış dinleyicilerde bağlam iptal edilene kadar hizmet verir.
+// Listen çağrılmamışsa önce onu çağırır.
+func (s *Server) Serve(ctx context.Context) error {
+	if s.httpLn == nil || s.httpsLn == nil {
+		if err := s.Listen(); err != nil {
+			return err
+		}
+	}
+
 	errc := make(chan error, 2)
 	go func() {
-		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpSrv.Serve(s.httpLn); err != nil && err != http.ErrServerClosed {
 			errc <- fmt.Errorf("edge: HTTP dinleyici: %w", err)
 		}
 	}()
 	go func() {
-		if err := s.httpsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		if err := s.httpsSrv.ServeTLS(s.httpsLn, "", ""); err != nil && err != http.ErrServerClosed {
 			errc <- fmt.Errorf("edge: HTTPS dinleyici: %w", err)
 		}
 	}()
@@ -332,6 +381,27 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	case <-ctx.Done():
 		return s.Close()
 	}
+}
+
+// ListenAndServe, açar ve hizmet verir.
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	if err := s.Listen(); err != nil {
+		return err
+	}
+	return s.Serve(ctx)
+}
+
+// portOf, "host:port" biçiminden port numarasını çıkarır. Çıkaramazsa 0.
+func portOf(addr string) int {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // Close, dinleyicileri kapatır.

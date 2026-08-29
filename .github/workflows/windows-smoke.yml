@@ -204,6 +204,16 @@ jobs:
           proxy: http://127.0.0.1:3999
           '@ | Set-Content -Path (Join-Path $siteDizin 'devbox.yaml') -Encoding utf8
 
+          # Koşucuda 80 rezerve bir aralığa düşüyor ve bağlanma
+          # WSAEACCES ile patlıyor. Aralıkları bağımsız olarak da
+          # gösteriyoruz; devbox'ın kendi teşhisiyle karşılaştırılabilsin.
+          Write-Host "--- rezerve TCP port aralıkları ---"
+          netsh int ipv4 show excludedportrange protocol=tcp | Write-Host
+          Write-Host "--- 80 ve 443'ü dinleyenler ---"
+          Get-NetTCPConnection -State Listen -LocalPort 80,443 -ErrorAction SilentlyContinue |
+            Select-Object LocalAddress, LocalPort, OwningProcess |
+            Format-Table -AutoSize | Out-String | Write-Host
+
           $arka = Start-Process -FilePath .\arka-uc.exe -PassThru `
             -RedirectStandardOutput arka-uc.log -RedirectStandardError arka-uc-err.log
           Start-Sleep -Seconds 2

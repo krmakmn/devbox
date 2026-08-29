@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -193,6 +194,14 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		}
 	}
 
+	// Dinleyiciler "hazır" demeden ÖNCE açılıyor. Gerçek Windows'ta
+	// çıkan bir kusurdu: 80 rezerve bir aralığa düştüğünde kullanıcı
+	// önce "hazır: https://…" satırını görüyor, sonra anlamsız bir
+	// soket hatası alıyor ve tarayıcıya gidince hiçbir şey bulamıyordu.
+	if err := srv.Listen(); err != nil {
+		return bindHatasi(ctx, err)
+	}
+
 	// Bu satır aynı zamanda çekirdek süreçle sözleşme: projects.Runner
 	// projeyi "hazır" saymak için tam olarak bunu arıyor. Metni tek bir
 	// yerde tutuyoruz ki biri değişip diğeri kalmasın.
@@ -207,7 +216,29 @@ PHP havuzu, web sunucusu yapılandırması ve kenar proxy. Ctrl+C ile durur.
 		cancel()
 	}()
 
-	return srv.ListenAndServe(ctx)
+	return srv.Serve(ctx)
+}
+
+// bindHatasi, uç dinleyicisi açılamadığında hatayı kullanıcının bir şey
+// yapabileceği hâle getirir.
+//
+// Ham hata ("bind: An attempt was made to access a socket in a way
+// forbidden by its access permissions") hiçbir şey anlatmıyor. Sebep
+// çoğu zaman Windows'un Hyper-V/WSL2/Docker Desktop yüzünden rezerve
+// ettiği port aralıkları ya da IIS; ikisi de teşhis edilebilir.
+func bindHatasi(ctx context.Context, err error) error {
+	var be *edge.BindError
+	if !errors.As(err, &be) || be.Port == 0 {
+		return err
+	}
+
+	alloc := ports.New("127.0.0.1")
+	// Rezerve aralıklar okunamazsa açıklama yine veriliyor, yalnız
+	// "rezerve mi" kısmı eksik kalıyor. Teşhis uğruna başarısız olmak
+	// anlamsız.
+	_ = alloc.LoadExclusions(ctx)
+
+	return fmt.Errorf("%w\n\n%s", err, strings.TrimRight(alloc.Diagnose(be.Port), "\n"))
 }
 
 // runDown, "devbox up"ın makinede bıraktığı izleri temizler.

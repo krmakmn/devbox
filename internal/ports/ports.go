@@ -240,6 +240,14 @@ func (a *Allocator) allocateEphemeral() (int, error) {
 	return 0, fmt.Errorf("ports: %d denemede çakışmayan geçici port bulunamadı", maxAttempts)
 }
 
+// Diagnose, verilen port tutulamadığında kullanıcıya ne olduğunu anlatır.
+//
+// Ayırıcı dışından da kullanılıyor: uç, 80 ya da 443'ü açamadığında aynı
+// açıklamayı gösteriyor. Windows'ta en sık sebep Hyper-V/WSL2/Docker
+// Desktop'ın rezerve ettiği aralıklar ve bunu ham soket hatasından
+// anlamak imkânsız.
+func (a *Allocator) Diagnose(port int) string { return a.diagnosis(port) }
+
 // diagnosis, port bulunamadığında kullanıcıya ne olduğunu anlatır.
 //
 // "port bulunamadı" tek başına hiçbir şey söylemiyor; asıl mesele hangi
