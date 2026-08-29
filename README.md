@@ -53,6 +53,8 @@ Bunun arkasında duran parçalar:
 | `internal/nrpt` | Windows Ad Çözümleme İlkesi Tablosu'na kural ekleme |
 | `internal/hostsfile` | NRPT engellenirse geri düşüş: hosts dosyasında yönetilen blok |
 | `internal/mail` | SMTP yakalayıcı, MIME çözümleme, posta kutusu arayüzü ve API |
+| `internal/tunnel` | Geçici genel adres: cloudflared/ngrok sarmalayıcısı |
+| `internal/lockfile` | Çalışan sürümlerin kaydı ve karşılaştırması (`devbox.lock`) |
 | `internal/inspect` | HTTP denetleyicisi: kenardan geçen istek/yanıt kaydı ve tekrar gönderme |
 | `internal/container` | Konteyner sürücüsü: docker/podman ile servis çalıştırma |
 | `internal/acme` | Yerel ACME (RFC 8555) sunucusu: JWS doğrulama, http-01, CSR imzalama |
@@ -153,6 +155,23 @@ kapsanmıyor: `sirket.com` yazan biri `test.sirket.com`a posta gitmesini istemi�
 sayılmaz. Parola `devbox.yaml`'a değil ortam değişkenine yazılıyor (`passwordEnv`),
 çünkü bu dosya depoya giriyor. Röle edilen posta da yakalanıyor ve sonucu
 arayüzde görünüyor — "gitti mi gitmedi mi" sorusu cevapsız kalmıyor.
+
+Kilit dosyası tarafında: `devbox.yaml` niyeti anlatıyor ("PHP 8.3 istiyorum"),
+`devbox.lock` gerçekleşeni ("8.3.14 çalıştı"). Aradaki fark bazen bir hatanın
+sizde görünüp ekip arkadaşınızda görünmemesi demek. `devbox lock check` farkı
+söylüyor: "kilitte 7.4.1, makinede 7.0.15". Kilit bir **rapor**, zorlayıcı değil
+— eksik sürümü indirmek imzalı manifest altyapısına bağlı ve o henüz yok. Bugün
+yaptığı şey farkı göstermek; bu tek başına, sorunu saatlerce aramaktan iyi.
+Konteynerlerde etiket değil **içerik özeti** kilitleniyor: `nginx:alpine`
+zamanla farklı bir imaja işaret edebilir.
+
+Tünel tarafında: `devbox share` projeyi geçici bir genel adresle açıyor —
+webhook denemeleri için. Kendi tünel sunucumuz yok: tünel internete açık bir
+sunucu gerektiriyor ve birinin onu işletmesi, ödemesi, güvenliğini üstlenmesi
+gerekiyor; DevBox yerel bir araç. Onun yerine kullanıcının seçtiği sağlayıcının
+kendi aracı (cloudflared ya da ngrok) çalıştırılıyor. Komut her seferinde
+uyarıyor: tünel açmak, hata ayıklama araçları ve denetleyiciyle birlikte
+geliştirme makinenizi internete açmak demek.
 
 Denetleyici tarafında: `https://inspect.<alan-adı>` kenardan geçen her isteği ve
 yanıtı gösteriyor — başlıklar, gövdeler, süre — ve bir isteği değiştirmeden

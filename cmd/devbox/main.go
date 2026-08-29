@@ -80,6 +80,10 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "lock":
+		return runLock(args[1:])
+	case "share":
+		return runShare(args[1:])
 	case "cert":
 		return runCert(args[1:])
 	case "acme":
@@ -123,6 +127,8 @@ Kullanım:
   devbox ui                   denetim panelini tarayıcıda aç
   devbox acme serve           yerel ACME sunucusu (konteynerler sertifika alsın)
   devbox cert <alt komut>     sertifikaları listele, üret, sil
+  devbox share                projeyi geçici bir genel adresle paylaş
+  devbox lock <alt komut>     çalışan sürümleri kilitle ve karşılaştır
   devbox daemon [seçenekler]  servisleri yöneten çekirdek süreci çalıştır
   devbox ps                   servislerin durumunu göster
   devbox logs [-f] <servis>   servisin günlüğünü göster

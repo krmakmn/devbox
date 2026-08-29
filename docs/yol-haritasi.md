@@ -506,10 +506,24 @@ birlikte ele alınacak.
   `https://inspect.<alan-adı>`. Kayıt bellekte ve sınırlı; tekrar, isteği kendi
   kenarımıza geri gönderiyor. Gerçek tarayıcıda denendi (canlı akış, süzgeç,
   tekrar).
-- **Tünelleme:** Cloudflare Tunnel / ngrok entegrasyonu ile `devbox share magaza`.
-- Ekip paylaşımı: `devbox.yaml` + kilit dosyası ile birebir sürüm eşleme.
+- **Tünelleme:** Cloudflare Tunnel / ngrok entegrasyonu ile `devbox share`. ✅
+  `internal/tunnel`. Kendi tünel sunucumuz yok (internete açık bir sunucu
+  işletmek projenin doğasını değiştirirdi); kullanıcının kurduğu araç
+  çalıştırılıyor. **Doğrulama sınırı:** akış ve çıktı ayrıştırma, araçların
+  belgelenmiş çıktı biçimini taklit eden sahte bir araçla sınandı; gerçek
+  cloudflared/ngrok bu ortamda kurulamadı (ağ kısıtlı).
+- Ekip paylaşımı: `devbox.yaml` + kilit dosyası ile birebir sürüm eşleme. ✅
+  `internal/lockfile`, `devbox lock write/check/show`. Kilit bir rapor;
+  zorlayıcı olması imzalı manifest altyapısına bağlı ⏳.
 - **Kabul:** WSL2'deki bir konteyner, DevBox'un yerel ACME'sinden sertifika alıp
   `https://api.magaza.test` olarak yayınlanıyor.
+  → **Kriterin iki yarısı da ayrı ayrı gösterildi** (Linux'ta, WSL2'de değil):
+  bağımsız bir ACME istemcisi (lego) yerel CA'dan `api.magaza.test` için
+  sertifika aldı ve zincir `openssl verify` ile doğrulandı; ayrı olarak gerçek
+  bir Docker konteyneri `driver: docker` ile ayağa kalktı ve
+  `https://api.magaza.test` kenar üzerinden yanıt verdi. Tek bir konteynerin
+  ikisini birden yapması (kendi sertifikasını alıp kendi TLS'ini sunması) ve
+  bunun WSL2'de olması denenmedi.
 
 ### Faz 8 — Sağlamlaştırma ve 1.0 · 5 hafta
 - Bağımsız **güvenlik denetimi** (odak: helper IPC ve LPE yüzeyi).
