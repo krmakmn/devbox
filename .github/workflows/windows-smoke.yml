@@ -171,11 +171,18 @@ jobs:
             throw "NRPT devrede ama magaza.test çözülemedi"
           }
           $sonuc | Format-Table -AutoSize | Out-String | Write-Host
-          $ip = ($sonuc | Where-Object { $_.IPAddress } | Select-Object -First 1).IPAddress
-          if ($ip -ne '127.0.0.1') {
-            throw "magaza.test $ip adresine çözüldü, 127.0.0.1 bekleniyordu"
+
+          # Kayıtlar türüne göre denetleniyor. "ilk IP'yi al" demek yanlış
+          # olurdu: Windows AAAA'yı önce döndürüyor ve ::1 doğru cevap.
+          $a = ($sonuc | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1).IPAddress
+          $aaaa = ($sonuc | Where-Object { $_.Type -eq 'AAAA' } | Select-Object -First 1).IPAddress
+          if ($a -ne '127.0.0.1') {
+            throw "magaza.test A kaydı $a, 127.0.0.1 bekleniyordu"
           }
-          Write-Host "✓ magaza.test → 127.0.0.1 (NRPT üzerinden)"
+          if ($aaaa -ne '::1') {
+            throw "magaza.test AAAA kaydı $aaaa, ::1 bekleniyordu"
+          }
+          Write-Host "✓ magaza.test → A 127.0.0.1, AAAA ::1 (NRPT üzerinden)"
 
       # Aynı sebeple tek adım: "devbox up" arka planda başlatılıyor ve
       # adım bitince ölüyor. Başlatan ve sorgulayan her şey birlikte.
@@ -238,6 +245,18 @@ jobs:
           Write-Host "yanıt: $yanit"
           if ($yanit -notmatch 'DEVBOX-DUMAN-TESTI') { throw "beklenen yanıt gelmedi" }
           Write-Host "✓ https://magaza.test — Windows güven zinciriyle, uyarısız"
+
+          # Çözücü AAAA için ::1 döndürüyor ve tarayıcılar IPv6'yı önce
+          # dener. Uç ":443" dinlediği için Go çift yığın bir soket açıyor,
+          # ama bunu varsaymak yerine ölçüyoruz: IPv6 kapalıysa kullanıcı
+          # "sayfa açılmıyor" yaşar, sebebi de görünmez olur.
+          $v6 = curl.exe --silent --show-error --fail --ipv6 https://magaza.test/duman 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host $v6
+            throw "https://magaza.test IPv6 (::1) üzerinden açılamadı (çıkış kodu $LASTEXITCODE)"
+          }
+          if ($v6 -notmatch 'DEVBOX-DUMAN-TESTI') { throw "IPv6'da beklenen yanıt gelmedi" }
+          Write-Host "✓ https://magaza.test IPv6 (::1) üzerinden de açılıyor"
 
           # --- HTTP'den HTTPS'e yönlendirme ---
           $kod = curl.exe --silent --output NUL --write-out '%{http_code}' http://magaza.test/
