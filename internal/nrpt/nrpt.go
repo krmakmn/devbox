@@ -132,9 +132,23 @@ func removeScript(namespace, comment string) string {
 }
 
 // listScript, mevcut kuralları JSON olarak döker.
+//
+// Select-Object ile doğrudan ilerlemek yerine her alan tek tek düz tipe
+// çevriliyor. Sebebi gerçek bir kusur: Windows koşucusunda "devbox dns
+// status" kuralı buluyor ama sunucu listesini boş gösteriyordu, çünkü
+// Get-DnsClientNrptRule'un döndürdüğü CIM nesnesinin NameServers alanı
+// ConvertTo-Json'a null olarak düşüyor. @(...) ve "$_" ile zorlayınca
+// serileştirme düz bir dizeye dizisine iniyor.
+//
+// -Depth de açıkça veriliyor: varsayılan 2, iç içe dizilerde sessizce
+// kırpıyor.
 func listScript() string {
 	return "$ErrorActionPreference='Stop'; " +
-		"Get-DnsClientNrptRule | Select-Object Namespace,NameServers,Comment | ConvertTo-Json -Compress"
+		"Get-DnsClientNrptRule | ForEach-Object { [pscustomobject]@{" +
+		"Namespace=@($_.Namespace | ForEach-Object { \"$_\" });" +
+		"NameServers=@($_.NameServers | ForEach-Object { \"$_\" });" +
+		"Comment=\"$($_.Comment)\"" +
+		"} } | ConvertTo-Json -Depth 4 -Compress"
 }
 
 // parseRules, ConvertTo-Json çıktısını çözer.

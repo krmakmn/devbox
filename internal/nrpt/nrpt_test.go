@@ -123,3 +123,43 @@ func TestParseRulesRejectsGarbage(t *testing.T) {
 		t.Error("bozuk JSON kabul edildi")
 	}
 }
+
+// TestListScriptDuzTipeZorluyor, gerçek Windows koşusunda çıkan bir kusuru
+// kilitliyor: "devbox dns status" kuralı buluyor ama sunucu listesini boş
+// gösteriyordu. Get-DnsClientNrptRule'un CIM nesnesi Select-Object'ten
+// geçirilip ConvertTo-Json'a verilince NameServers null'a düşüyor.
+func TestListScriptDuzTipeZorluyor(t *testing.T) {
+	script := listScript()
+
+	if strings.Contains(script, "Select-Object") {
+		t.Error("listScript hâlâ Select-Object kullanıyor; CIM alanları null'a düşebilir")
+	}
+	if !strings.Contains(script, "NameServers=@(") {
+		t.Error("NameServers dizi olmaya zorlanmıyor")
+	}
+	if !strings.Contains(script, "Namespace=@(") {
+		t.Error("Namespace dizi olmaya zorlanmıyor")
+	}
+	if !strings.Contains(script, "-Depth") {
+		t.Error("ConvertTo-Json derinliği açıkça verilmemiş; varsayılan 2 kırpıyor")
+	}
+}
+
+// TestParseRulesBosSunucu, kusurun görünen belirtisini belgeliyor: sunucu
+// alanı null gelirse kural okunuyor ama sunucusuz kalıyor. parseRules bunu
+// hata saymıyor — çözüm betikte, burada değil.
+func TestParseRulesBosSunucu(t *testing.T) {
+	rules, err := parseRules([]byte(`{"Namespace":[".test"],"NameServers":null,"Comment":"DevBox yerel geliştirme"}`))
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("kural sayısı %d, 1 bekleniyordu", len(rules))
+	}
+	if rules[0].Namespace != ".test" {
+		t.Errorf("ad alanı %q", rules[0].Namespace)
+	}
+	if len(rules[0].Servers) != 0 {
+		t.Errorf("sunucu listesi %v, boş bekleniyordu", rules[0].Servers)
+	}
+}
