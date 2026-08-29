@@ -227,8 +227,37 @@ jobs:
             -RedirectStandardOutput dns2-out.log -RedirectStandardError dns2-err.log
           Start-Sleep -Seconds 2
 
+          # --- Alınamayan portta doğru davranış ---
+          # Koşucuda 80 hem rezerve aralıkta hem de http.sys'te (PID 4).
+          # Yani gerçek Windows'ta garantili alınamayan bir portumuz var;
+          # kötü hata davranışını burada sınamak bedava. Beklenen: "hazır"
+          # satırı HİÇ yazılmamalı ve hata ne yapılacağını söylemeli.
+          $kotu = Start-Process -FilePath $devbox -WorkingDirectory $siteDizin `
+            -ArgumentList 'up','-no-dns' -PassThru -Wait `
+            -RedirectStandardOutput (Join-Path $kok 'up-80.log') `
+            -RedirectStandardError (Join-Path $kok 'up-80-err.log')
+          $kotuCikti = (Get-Content (Join-Path $kok 'up-80.log'), (Join-Path $kok 'up-80-err.log') `
+            -ErrorAction SilentlyContinue | Out-String)
+          Write-Host $kotuCikti
+          if ($kotu.ExitCode -eq 0) { throw "80 alınamazken devbox up başarıyla çıktı" }
+          if ($kotuCikti -match 'hazır: https') {
+            throw "port alınamadığı hâlde proje hazır ilan edildi"
+          }
+          if ($kotuCikti -notmatch 'rezerve') {
+            throw "hata mesajı portun rezerve olduğunu söylemiyor"
+          }
+          if ($kotuCikti -notmatch 'excludedportrange') {
+            throw "hata mesajı teşhis komutunu vermiyor"
+          }
+          Write-Host "✓ port alınamayınca hazır denmiyor ve hata ne yapılacağını söylüyor"
+
+          # --- Asıl uçtan uca ---
+          # 80 bu makinede alınamıyor, o yüzden yönlendirme dinleyicisi
+          # 8080'e alınıyor. MVP kabul kriteri bundan etkilenmiyor:
+          # kritik olan https://magaza.test'in portsuz ve -k'sız açılması,
+          # o da 443'te duruyor (rezerve değil, boş).
           $up = Start-Process -FilePath $devbox -WorkingDirectory $siteDizin `
-            -ArgumentList 'up','-no-dns' -PassThru `
+            -ArgumentList 'up','-no-dns','-http',':8080' -PassThru `
             -RedirectStandardOutput (Join-Path $kok 'up.log') `
             -RedirectStandardError (Join-Path $kok 'up-err.log')
 
@@ -269,7 +298,9 @@ jobs:
           Write-Host "✓ https://magaza.test IPv6 (::1) üzerinden de açılıyor"
 
           # --- HTTP'den HTTPS'e yönlendirme ---
-          $kod = curl.exe --silent --output NUL --write-out '%{http_code}' http://magaza.test/
+          # 8080 üzerinden: bu makinede 80 alınamıyor. Sınanan davranış
+          # aynı — düz HTTP isteği HTTPS'e yönlendiriliyor mu.
+          $kod = curl.exe --silent --output NUL --write-out '%{http_code}' http://magaza.test:8080/
           if ($kod -notmatch '^30[178]$') { throw "HTTP isteği HTTPS'e yönlendirilmedi ($kod)" }
           Write-Host "✓ HTTP → HTTPS yönlendirmesi ($kod)"
 
@@ -336,6 +367,8 @@ jobs:
             dns-err.log
             dns2-out.log
             dns2-err.log
+            up-80.log
+            up-80-err.log
             arka-uc.log
             arka-uc-err.log
           if-no-files-found: ignore
